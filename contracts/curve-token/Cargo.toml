@@ -8,6 +8,9 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-near-sdk = "=5.29.1"
+near-sdk = { version = "=5.29.1", features = ["legacy"] }
 near-contract-standards = "=5.29.1"
 primitive-types = { version = "0.13", default-features = false }
+
+[dev-dependencies]
+near-sdk = { version = "=5.29.1", features = ["legacy", "unit-testing"] }
