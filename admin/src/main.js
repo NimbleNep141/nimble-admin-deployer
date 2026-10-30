@@ -1,14 +1,21 @@
 import './style.css';
 import { setupWalletSelector, actionCreators } from '@near-wallet-selector/core';
-import { setupMyNearWallet } from '@near-wallet-selector/my-near-wallet';
+import { setupMeteorWallet } from '@near-wallet-selector/meteor-wallet';
+import { setupIntearWallet } from '@near-wallet-selector/intear-wallet';
 import {
   RPC_URL, YOCTO, parseNear, formatNear, assertWasm, sha256, factoryIdFor,
   MAX_FACTORY_WASM, MAX_TEMPLATE_WASM, accountInfo, accessKeys, storagePrice, templateDeposit,
   view, createFactoryActions, installTemplateActions, launchActions, transactionHash, completedSuccessfully,
 } from './core.js';
 
+const WALLET_NAMES = Object.freeze({ 'meteor-wallet': 'Meteor Wallet', 'intear-wallet': 'Intear Wallet' });
 const el = id => document.getElementById(id);
-const state = { selector:null,wallet:null,owner:null, factory:null, factoryInfo:null,
+function walletFeedback(message, kind='info') {
+  const target=el('wallet-feedback');
+  target.textContent=message;
+  target.dataset.kind=kind;
+}
+const state = { selector:null,wallet:null,walletProvider:null,owner:null, factory:null, factoryInfo:null,
   factoryBytes:null, tokenBytes:null, manifest:null, artifactsTrusted:false, storagePrice:null,
   verifiedFactory:false, installed:false, checkedFactory:false, keys:[], busy:false };
 const update = (id, text) => {el(id).textContent=String(text)};
@@ -59,26 +66,67 @@ async function refreshAccount() {
   render();
 }
 async function initWallet() {
-  state.selector=await setupWalletSelector({ network:'testnet',modules:[setupMyNearWallet()] });
+  // MyNearWallet stopped accepting new dApp connections during its 2026 sunset.
+  // Do not put it back into the selector without checking current wallet support.
+  state.selector=await setupWalletSelector({
+    network:'testnet',
+    modules:[setupMeteorWallet(),setupIntearWallet()],
+  });
   const existing=state.selector.store.getState().selectedWalletId;
-  if(existing) {
-    try {state.wallet=await state.selector.wallet(existing);await refreshAccount();}catch(e){log('Wallet session could not be restored: '+errMessage(e),'error')}
+  if(existing && WALLET_NAMES[existing]) {
+    try {
+      el('wallet-provider').value=existing;
+      state.wallet=await state.selector.wallet(existing);
+      state.walletProvider=existing;
+      await refreshAccount();
+      if(state.owner) {
+        walletFeedback('Connected to '+state.owner+' through '+WALLET_NAMES[existing]+'.','ok');
+      }
+    } catch(e) {
+      state.wallet=null;state.walletProvider=null;state.owner=null;
+      log('Wallet session could not be restored: '+errMessage(e),'error');
+    }
   }
   state.selector.store.observable.subscribe(async () => {
-    if(state.wallet) try{await refreshAccount()}catch{}
+    if(state.wallet) try {await refreshAccount()} catch(e) {
+      log('Could not refresh wallet connection: '+errMessage(e),'error');
+    }
   });
-  log('Wallet connector loaded. Chain locked to NEAR testnet.');
+  if(!state.owner) walletFeedback('Wallet connection is ready. Select Meteor or Intear, then click Connect wallet.');
+  log('Wallet connectors ready: Meteor and Intear. Chain locked to NEAR testnet.');
+  render();
 }
 async function connectWallet() {
-  if(!state.selector) throw new Error('Wallet connector not ready; check your browser console.');
-  state.wallet=await state.selector.wallet('my-near-wallet');
-  const accounts=await state.wallet.getAccounts();
-  if(!accounts.length){
-    log('Opening MyNearWallet. Approve connection and return to this page.');
-    await state.wallet.signIn({contractId:'social.testnet'});
+  if(!state.selector) throw new Error('Wallet connection not initialized. Reload the page and check the message below this button.');
+  const provider=el('wallet-provider').value;
+  if(!Object.hasOwn(WALLET_NAMES,provider)) throw new Error('Select a supported NEAR wallet.');
+  walletFeedback('Connecting to '+WALLET_NAMES[provider]+'… Approve any wallet window or prompt.');
+  log('Connecting via '+WALLET_NAMES[provider]+' on NEAR testnet.');
+  // The selector returns an injected-wallet adapter. Private keys never enter this site.
+  state.wallet=await state.selector.wallet(provider);
+  state.walletProvider=provider;
+  let accounts=await state.wallet.getAccounts();
+  if(!accounts.length) {
+    walletFeedback('Opening '+WALLET_NAMES[provider]+' authorization. If nothing appears, install/unlock the wallet and allow pop-ups for this site.');
+    log('Requesting '+WALLET_NAMES[provider]+' sign-in. Approve the request in your wallet.');
+    await state.wallet.signIn({
+      contractId:'social.testnet',
+      methodNames:['__nearium_connect__'],
+    });
   }
   await refreshAccount();
-  if(state.owner) log('Wallet connected: '+state.owner,'ok');
+  if(!state.owner) {
+    walletFeedback('Wallet approval is pending or no testnet account was returned. Check the wallet extension or window and try again if it did not open.','info');
+    log('No signed-in account returned yet. Check wallet UI; browser-wallet callbacks may require a reload.');
+    return;
+  }
+  if(!state.owner.endsWith('.testnet')) {
+    walletFeedback('Connected account '+state.owner+' is not a named .testnet account. Select a named testnet account before deploying.','error');
+    log('Please use a named .testnet account for factory subaccount creation.','error');
+    return;
+  }
+  walletFeedback('Connected: '+state.owner+' via '+WALLET_NAMES[provider]+'.','ok');
+  log('Wallet connected: '+state.owner,'ok');
 }
 async function loadManifest() {
   const base=new URL('./artifacts/',document.baseURI);
@@ -193,10 +241,10 @@ async function checkToken() {
   log(record?`Token ${record.token_id} is ${record.status}. Do not retry any failed or pending launch without checking receipts.`:`Token slug ${slug} has no launch record.`);
 }
 function bind(id,method) {
-  el(id).addEventListener('click',async()=>{try{setBusy(true);await method()}catch(e){log(errMessage(e),'error');alert(errMessage(e))}finally{setBusy(false)}});
+  el(id).addEventListener('click',async()=>{try{setBusy(true);await method()}catch(e){log(errMessage(e),'error');if(id==='connect')walletFeedback('Connection failed: '+errMessage(e),'error');alert(errMessage(e))}finally{setBusy(false)}});
 }
 bind('connect',connectWallet);
-bind('disconnect',async()=>{if(state.wallet)await state.wallet.signOut();state.wallet=null;state.owner=null;render();log('Wallet disconnected')});
+bind('disconnect',async()=>{if(state.wallet)await state.wallet.signOut();state.wallet=null;state.walletProvider=null;state.owner=null;render();walletFeedback('Disconnected. Select a wallet and reconnect.');log('Wallet disconnected')});
 bind('load-artifacts',loadManifest);
 bind('check-factory',readFactory);
 bind('deploy-factory',deployFactory);
@@ -204,10 +252,11 @@ bind('check-template',readFactory);
 bind('install-template',installTemplate);
 bind('launch-token',launchToken);
 bind('check-token',checkToken);
+el('wallet-provider').addEventListener('change',()=>walletFeedback('Selected '+WALLET_NAMES[el('wallet-provider').value]+'. Click Connect wallet to authorize.'));
 el('prefix').addEventListener('input',()=>render());
 el('factory-wasm').addEventListener('change',async e=>{try{await localUpload('factory',e.target.files?.[0])}catch(err){log(errMessage(err),'error')}});
 el('token-wasm').addEventListener('change',async e=>{try{await localUpload('token',e.target.files?.[0])}catch(err){log(errMessage(err),'error')}});
 el('clear-log').addEventListener('click',()=>{el('logs').textContent='' });
 render();
-initWallet().catch(e=>log('Wallet connector unavailable: '+errMessage(e),'error'));
+initWallet().catch(e=>{walletFeedback('Wallet connection unavailable: '+errMessage(e),'error');log('Wallet connector unavailable: '+errMessage(e),'error')});
 storagePrice().then(p=>{state.storagePrice=p;render();log('On-chain storage byte price loaded.')}).catch(e=>log('Could not retrieve live network storage pricing: '+errMessage(e),'error'));
