@@ -1,0 +1,20 @@
+# One-time maintenance: stop the known obsolete smoke-test job that started
+# before its preview-server cleanup bug was corrected.
+name: Stop obsolete Nearium browser test
+on:
+  push:
+    paths:
+      - '.github/workflows/stop-obsolete-nearium-run.yml'
+permissions:
+  actions: write
+  contents: read
+jobs:
+  stop-obsolete:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel obsolete run 41094035587
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh api --method POST "repos/${GH_REPO}/actions/runs/41094035587/cancel" || true
