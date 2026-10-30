@@ -11,6 +11,29 @@ concurrency:
   group: near-deployer-pages
   cancel-in-progress: false
 jobs:
+  # Browser integration gate: catches bundling errors that Node unit tests
+  # cannot, before a broken admin site is published.
+  wallet-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get source
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install admin dependencies
+        working-directory: admin
+        run: npm install --no-audit --no-fund
+      - name: Build admin dashboard
+        working-directory: admin
+        run: npm run build
+      - name: Install Chromium for wallet browser smoke test
+        working-directory: admin
+        run: npx playwright install --with-deps chromium
+      - name: Verify wallet connectors initialize in real Chromium
+        working-directory: admin
+        run: node tests/wallet-browser-smoke.mjs
   build:
     runs-on: ubuntu-latest
     steps:
@@ -63,7 +86,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, wallet-smoke]
     steps:
       - name: Publish site
         id: deployment
