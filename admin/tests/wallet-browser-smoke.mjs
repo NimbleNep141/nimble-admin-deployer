@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { chromium } from 'playwright';
 
-const server=spawn('npm',['run','preview','--','--host','127.0.0.1','--port','4173','--strictPort'],{
+const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','preview','--host','127.0.0.1','--port','4173','--strictPort'],{
   cwd:process.cwd(),env:process.env,stdio:['ignore','pipe','pipe'],
 });
 let serverLogs='';
@@ -31,7 +31,7 @@ try {
     () => {
       const text=document.getElementById('wallet-feedback')?.textContent||'';
       return text.includes('Wallet connection is ready') || text.startsWith('Connected to ');
-    },{timeout:35000}
+    },undefined,{timeout:35000}
   ).catch(async e=>{
     const feedback=await page.locator('#wallet-feedback').textContent().catch(()=>'(not rendered)');
     const log=await page.locator('#logs').textContent().catch(()=>'(logs not rendered)');
@@ -44,4 +44,6 @@ try {
 } finally {
   if(browser) await browser.close();
   server.kill('SIGTERM');
+  server.stdout.destroy();
+  server.stderr.destroy();
 }
