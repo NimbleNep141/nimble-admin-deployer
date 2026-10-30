@@ -9,7 +9,7 @@ permissions:
   id-token: write
 concurrency:
   group: near-deployer-pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   # Browser integration gate: catches bundling errors that Node unit tests
   # cannot, before a broken admin site is published.
