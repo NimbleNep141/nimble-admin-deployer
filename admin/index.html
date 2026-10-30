@@ -30,7 +30,7 @@
     </section>
     <section class="panel" id="wallet"><div class="section-head"><div class="numb">01</div><div><h2>Admin wallet</h2><p>Sign actions in your wallet. No admin private key goes into Nearium.</p></div><div class="grow"></div><span class="status" id="wallet-status">Offline</span></div>
       <div class="row responsive"><div class="field"><label for="wallet-provider">Wallet provider</label><select id="wallet-provider"><option value="meteor-wallet">Meteor Wallet</option><option value="intear-wallet">Intear Wallet</option></select></div><div class="field flex"><label>Connected NEAR account</label><div class="readout" id="wallet-account">Connect a wallet to begin</div></div><button id="connect" class="primary">Connect wallet</button><button id="disconnect" class="secondary" disabled>Disconnect</button></div>
-      <p id="wallet-feedback" class="wallet-feedback" role="status" aria-live="polite">Initializing wallet connectors…</p>
+      <p id="wallet-feedback" class="wallet-feedback" role="status" aria-live="polite">Loading wallet interface…</p>
       <p class="help">You need a named NEAR <strong>testnet</strong> account in a compatible wallet. <a href="https://wallet.meteorwallet.app" target="_blank" rel="noopener noreferrer">Get Meteor Wallet</a> or <a href="https://wallet.intear.tech" target="_blank" rel="noopener noreferrer">get Intear Wallet</a>. Unlock the wallet, select testnet, and allow connection prompts. MyNearWallet has disabled new app connections during its retirement. Factory creation also requires the wallet to approve CreateAccount, DeployContract, Transfer and FunctionCall actions.</p>
     </section>
     <section class="panel" id="artifacts"><div class="section-head"><div class="numb">02</div><div><h2>Verified contract builds</h2><p>GitHub Actions compiles the original v0.1 Rust source in the cloud.</p></div><div class="grow"></div><span class="status" id="artifact-status">Not loaded</span></div>
@@ -61,6 +61,30 @@
     <footer>Nearium Admin Deployer v0.2 · Testnet only · Wallet signature required for every chain-changing operation</footer>
   </main>
 </div>
+<script>
+(function () {
+  // Independent boot monitor so an early wallet SDK error cannot leave a silent button.
+  var field=document.getElementById('wallet-feedback');
+  function show(message){
+    if(!field)return;
+    field.textContent=message;
+    field.dataset.kind='error';
+  }
+  window.addEventListener('error',function(e){
+    if(!window.__neariumBooted) show('Admin script failed to start: '+(e.message||'script loading error')+'. Refresh with Ctrl+Shift+R.');
+  });
+  window.addEventListener('unhandledrejection',function(e){
+    var reason=e.reason && e.reason.message ? e.reason.message:String(e.reason);
+    if(!window.__neariumBooted) show('Admin script failed: '+reason);
+  });
+  document.getElementById('connect').addEventListener('click',function(){
+    if(!window.__neariumBooted) show('Connect clicked, but the admin application did not start. Check browser extensions or console errors; then refresh with Ctrl+Shift+R.');
+  });
+  setTimeout(function(){
+    if(!window.__neariumBooted) show('Wallet interface is not loading. Press Ctrl+Shift+R and check whether browser extensions block scripts.');
+  },15000);
+})();
+</script>
 <script type="module" src="/src/main.js"></script>
 </body>
 </html>
