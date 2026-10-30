@@ -1,0 +1,13 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {parseNear,formatNear,factoryIdFor,assertWasm,templateDeposit,createFactoryActions,launchActions,LAUNCH_DEPOSIT,YOCTO,toBase64,completedSuccessfully} from '../src/core.js';
+const wasm=new Uint8Array([0,97,115,109,1,0,0,0,2,3,4,5]);
+const a={createAccount:()=>({kind:'create'}),transfer:x=>({kind:'transfer',v:x}),deployContract:b=>({kind:'deploy',bytes:b}),functionCall:(n,arg,g,d)=>({kind:'call',name:n,arg,g,d})};
+test('exact yocto arithmetic and formatting',()=>{assert.equal(parseNear('5.02'),502n*10n**22n);assert.equal(formatNear(parseNear('0.000001'),6),'0.000001');assert.throws(()=>parseNear('1e2'));assert.throws(()=>parseNear('-1'));});
+test('subaccount scoped to signer',()=>{assert.equal(factoryIdFor('alice.testnet','launchpad'),'launchpad.alice.testnet');assert.throws(()=>factoryIdFor('alice.near','launchpad'));assert.throws(()=>factoryIdFor('alice.testnet','ABC'));});
+test('wasm header and bounds',()=>{assert.equal(assertWasm(wasm,100),wasm);assert.throws(()=>assertWasm(new Uint8Array(12),100));assert.throws(()=>assertWasm(wasm,8));});
+test('create deploy has no AddKey or secrets',()=>{const tx=createFactoryActions(a,wasm,'alice.testnet',6n*YOCTO);assert.deepEqual(tx.map(x=>x.kind),['create','transfer','deploy','call']);assert.equal(tx[3].arg.owner,'alice.testnet');assert.equal(tx[3].name,'new');});
+test('safe fixed launch deposit and arg validation',()=>{const tx=launchActions(a,'pepe','Pepe Test','PEPE');assert.equal(tx[0].d,LAUNCH_DEPOSIT);assert.throws(()=>launchActions(a,'X','Pepe','PEPE'));});
+test('base64 chunking safe',()=>{assert.equal(toBase64(wasm),Buffer.from(wasm).toString('base64'));});
+test('storage estimate is over required minimum',()=>{const cost=10n**19n;assert.ok(templateDeposit(150000,cost)>(150064n*cost));});
+test('wallet redirect is not a success',()=>{assert.equal(completedSuccessfully(undefined),false);assert.equal(completedSuccessfully({status:{Failure:{}}}),false);assert.equal(completedSuccessfully({status:{SuccessValue:''}}),true);});

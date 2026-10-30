@@ -1,0 +1,14 @@
+Nearium: add an admin deployment page without redesigning the existing website.
+
+1. Preserve all existing website design, navigation, token listings, styles, logos, and public wallet integration.
+2. Add a private-facing Admin navigation entry named "Contract Deployer". It must open the externally hosted Nearium Admin Deployer URL in a new HTTPS tab (do not iframe it).
+3. Set the URL only after GitHub Actions successfully builds and deploys admin/dist via GitHub Pages. Initial value can be a blank configuration field ADMIN_DEPLOYER_URL, not a fabricated working URL.
+4. Show the navigation entry only to the configured site administrator when your server-verified site authentication supports roles. Client-only conditional visibility is cosmetic and not itself access control.
+5. IMPORTANT: the deployer is a static app, but every blockchain-changing action is signed by the operator's actual NEAR testnet wallet. Never collect, store, transmit, or request seed phrases, secret keys, or full-access private keys in BuildAI.space.
+6. No browser-side pretend success. The deployer must read get_owner and is_template_installed and verify on-chain state after wallet transactions. Never auto-retry failed/pending child launches.
+7. Testnet only, https://rpc.testnet.near.org. Do not add a mainnet switch yet.
+8. The public launch form on Nearium will ultimately use the v0.1 web/near-adapter.ts as reference for launch, quotes and trading. Its old generic WalletAction signature must be adapted to the Wallet Selector v10 actionCreators format. Do not present simulated trades as blockchain transactions.
+9. Place a plain explanatory warning above the admin link: "Experimental NEAR testnet deployment only. Not audited for production."
+10. If BuildAI.space can import static React/JS source, you may copy admin/src/core.js as transaction logic, but keep wallet signing inside the browser wallet and do not install a backend key.
+
+To connect the site, replace ADMIN_DEPLOYER_URL with the actual GitHub Pages address from the successful workflow, e.g. https://YOURNAME.github.io/nearium-admin-deployer/ .

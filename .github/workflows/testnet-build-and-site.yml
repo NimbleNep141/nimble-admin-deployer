@@ -1,0 +1,66 @@
+name: Nearium testnet contracts and admin dashboard
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: near-deployer-pages
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get source
+        uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install cargo-near
+        run: cargo install --locked cargo-near --version 0.22.0
+      - name: Run v0.1 factory Rust tests
+        working-directory: contracts/factory
+        run: cargo test
+      - name: Run v0.1 curve-token Rust tests
+        working-directory: contracts/curve-token
+        run: cargo test
+      - name: Build factory WASM
+        working-directory: contracts/factory
+        run: cargo near build non-reproducible-wasm --no-abi
+      - name: Build curve-token WASM
+        working-directory: contracts/curve-token
+        run: cargo near build non-reproducible-wasm --no-abi
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run JS unit tests
+        run: node --test admin/tests/*.test.mjs
+      - name: Create hash manifest from built WASM
+        run: python3 scripts/publish_manifest.py
+      - name: Install admin frontend packages
+        working-directory: admin
+        run: npm install --no-audit --no-fund
+      - name: Compile frontend
+        working-directory: admin
+        run: npm run build
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Upload testnet admin site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: admin/dist
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Publish site
+        id: deployment
+        uses: actions/deploy-pages@v4

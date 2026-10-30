@@ -1,0 +1,9 @@
+{
+  "name": "near-curve-launchpad-prototype",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "test:model": "node tests/curve-model.test.mjs"
+  }
+}
