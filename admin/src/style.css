@@ -7,3 +7,10 @@
 .wallet-feedback[data-kind="error"]{background:#2e1c1d;border-color:#99514b;color:#ffb9b1}
 .wallet-feedback[data-kind="ok"]{background:#123126;border-color:#206a4c;color:#81f4bf}
 .help a{color:#78f5c2;text-decoration:underline}
+
+/* Local CLI deployment section */
+#cli-deploy .field{margin-top:14px}
+#cli-deploy .notice{margin-bottom:12px}
+#cli-deploy .row.responsive{flex-wrap:wrap}
+#cli-output{border-top:1px solid #293d48;margin-top:18px;padding-top:8px}
+.cli-code{display:block;width:100%;resize:vertical;min-height:155px;background:#07131b;border:1px solid #334b57;border-radius:9px;padding:13px;color:#d0f9e8;font:12px/1.55 ui-monospace,Consolas,monospace;white-space:pre;tab-size:2}

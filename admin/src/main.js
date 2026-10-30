@@ -1,5 +1,6 @@
 import './style.css';
 import { connectOrSignIn } from './wallet-auth.js';
+import { setupCliDeployment } from './cli-deploy.js';
 // Wallet modules load asynchronously after the page handlers are attached.
 // If wallet dependencies fail to initialize, the UI remains responsive.
 import {
@@ -64,6 +65,7 @@ function render() {
   el('install-template').disabled=state.busy||!state.owner||!state.verifiedFactory||state.installed||!state.artifactsTrusted||!state.tokenBytes||state.keys.length>0||state.factoryInfo?.owner!==state.owner||!state.storagePrice;
   el('launch-token').disabled=state.busy||!state.owner||!state.verifiedFactory||!state.installed;
   el('check-token').disabled=state.busy||!state.factory;
+  cli.refresh();
   if(state.storagePrice&&state.tokenBytes) update('template-deposit',`${formatNear(templateDeposit(state.tokenBytes.length,state.storagePrice),6)} testnet NEAR (estimated)`);
 }
 async function refreshAccount() {
@@ -265,6 +267,17 @@ function bind(id,method) {
     } finally {setBusy(false)}
   });
 }
+const cli=setupCliDeployment({
+  getBuild:()=>state.artifactsTrusted&&state.factoryBytes&&state.manifest?{
+    bytes:state.factoryBytes,hash:state.manifest.factory.sha256,
+  }:null,
+  getPrice:()=>state.storagePrice,
+  getPrefix:()=>el('prefix').value.trim(),
+  getFunding:()=>el('funding').value.trim(),
+  getOwner:()=>state.owner,
+  accountInfo,log,
+});
+el('funding').addEventListener('input',()=>cli.refresh());
 bind('connect',connectWallet);
 bind('disconnect',async()=>{if(state.wallet)await state.wallet.signOut();state.wallet=null;state.walletProvider=null;state.owner=null;render();walletFeedback('Disconnected. Select a wallet and reconnect.');log('Wallet disconnected')});
 bind('load-artifacts',loadManifest);

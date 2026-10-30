@@ -14,6 +14,9 @@ This project combines the **unchanged original v0.1 NEAR Rust contracts** with a
 - `BUILDAI-INTEGRATION.txt`: AI builder copy/paste instructions.
 - `docs/SECURITY-GATES.md`: v0.1 inherited release blockers.
 
+## CLI deployment alternative (testnet only)
+If Meteor blocks DeployContract, use the **Deploy with NEAR CLI (Windows)** section on the published admin site. It generates local commands, never signs or sends transactions from GitHub Pages. Load the verified build; enter the named testnet owner, factory prefix and funding; check the target account does not exist; download the verified WASM; and generate PowerShell instructions. Install NEAR CLI from https://near.cli.rs/ and import your own dedicated testnet full-access signing key locally. Run the preparation command to verify the WASM hash before running the second, real deployment command. Confirm four actions (CreateAccount, Transfer, DeployContract, FunctionCall(new)) and **no AddKey**. Never send credentials to the website, GitHub, or ChatGPT. Never retry an uncertain deployment without investigating receipts.
+
 ## Setup without local coding
 
 1. **Create a new GitHub repository**, e.g. `nearium-admin-deployer`, ideally private while reviewing the code. The admin site, if published with GitHub Pages, will itself be public. Never put secrets into the source.

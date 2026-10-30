@@ -15,6 +15,7 @@
     <a href="#wallet">01 <span>Admin wallet</span></a>
     <a href="#artifacts">02 <span>Verified builds</span></a>
     <a href="#factory">03 <span>Deploy factory</span></a>
+    <a href="#cli-deploy">↳ <span>Windows CLI</span></a>
     <a href="#template">04 <span>Install template</span></a>
     <a href="#token">05 <span>Launch test token</span></a>
     <div class="side-bottom"><div class="dot"></div> Testnet only<br/><span>v0.1 contract baseline</span></div>
@@ -47,6 +48,23 @@
       <div class="field"><label>Factory address (automatic)</label><div id="factory-id" class="readout monospace">Connect your wallet</div></div>
       <div class="row"><button id="check-factory" class="secondary" disabled>Check on-chain</button><button id="deploy-factory" class="primary" disabled>Deploy factory ↗</button></div>
       <p class="help">Only the parent account can create the selected child account. The deployment deliberately adds no access keys to the factory. Account creation is not auto-retried after wallet redirects or failures.</p>
+    </section>
+    <section class="panel" id="cli-deploy">
+      <div class="section-head"><div class="numb">CLI</div><div><h2>Deploy with NEAR CLI (Windows)</h2><p>Use locally signed commands if Meteor Wallet blocks DeployContract. Existing wallet deployment remains available above.</p></div><div class="grow"></div><span id="cli-status" class="status">Not checked</span></div>
+      <div class="notice"><strong>Local signing only</strong><span>This GitHub Pages website does not execute NEAR CLI or access your Windows keys. Never paste a private key or recovery phrase into Nearium. Testnet only.</span></div>
+      <div class="row responsive"><div class="field flex"><label for="cli-owner">CLI signer / owner (.testnet account)</label><input id="cli-owner" type="text" maxlength="64" spellcheck="false" placeholder="youraccount.testnet"/></div><button type="button" class="secondary" id="cli-use-wallet">Use connected account</button></div>
+      <p class="help">This guide uses the factory prefix and funding set in Section 3. You can use it without connecting a browser wallet, provided the signer has a local full-access testnet key.</p>
+      <div class="field"><label>Target factory account</label><div class="readout monospace" id="cli-factory">Enter a valid .testnet owner account</div></div>
+      <div class="row responsive"><button class="secondary" type="button" id="cli-check">Check factory on testnet</button><button class="secondary" type="button" id="cli-download" disabled>Download verified factory WASM</button><button class="primary" type="button" id="cli-generate" disabled>Generate CLI commands</button></div>
+      <p id="cli-feedback" class="wallet-feedback" role="status" aria-live="polite">First load the published build, then verify that the factory does not already exist.</p>
+      <div id="cli-output" hidden>
+        <div class="field"><label for="cli-preparation">Step 1: PowerShell preparation and SHA-256 verification (does not send a transaction)</label><textarea class="cli-code" id="cli-preparation" readonly spellcheck="false" rows="12"></textarea></div>
+        <div class="row"><button type="button" class="secondary small" id="cli-copy-preparation">Copy preparation</button></div>
+        <div class="field"><label for="cli-command">Step 2: PowerShell deployment (signs and sends a real testnet transaction)</label><textarea class="cli-code" id="cli-command" readonly spellcheck="false" rows="7"></textarea></div>
+        <div class="row"><button type="button" class="secondary small" id="cli-copy-command">Copy deploy command</button></div>
+        <p class="help">Run preparation first, then review the deployment: CreateAccount, Transfer, DeployContract and FunctionCall(new). There must be NO AddKey. If it fails, do not retry until you check the explorer and factory state.</p>
+      </div>
+      <p class="help"><a href="https://near.cli.rs/" target="_blank" rel="noopener noreferrer">Install official NEAR CLI</a> · <a href="https://testnet.nearblocks.io/" target="_blank" rel="noopener noreferrer">NEAR Testnet Explorer</a>. After local deployment, connect the same owner wallet and click Check on-chain above.</p>
     </section>
     <section class="panel" id="template"><div class="section-head"><div class="numb">04</div><div><h2>Install bonding-curve template</h2><p>One-time owner-authorized contract call that installs the fixed v0.1 token code.</p></div><div class="grow"></div><span class="status" id="template-status">Not checked</span></div>
       <div class="row responsive"><div class="field flex"><label>Estimated storage-funding deposit</label><div id="template-deposit" class="readout">Waiting for uploaded template and network price</div></div><button id="check-template" class="secondary" disabled>Refresh status</button><button id="install-template" class="primary" disabled>Install template ↗</button></div>

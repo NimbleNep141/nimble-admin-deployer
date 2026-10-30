@@ -38,6 +38,9 @@ try {
     throw new Error('Wallet selector failed to initialize in Chromium. UI: '+feedback+' Logs: '+log+
       '\nBrowser exceptions: '+JSON.stringify(pageErrors)+'\nConsole errors: '+JSON.stringify(consoleErrors)+'\n'+e.message);
   });
+  await page.locator('#cli-owner').fill('alice.testnet');
+  if((await page.locator('#cli-factory').textContent())!=='launchpad.alice.testnet')throw new Error('CLI target preview incorrect');
+  if(await page.locator('#cli-generate').isEnabled())throw new Error('CLI deployment allowed without verified build and chain check');
   const status=await page.locator('#wallet-feedback').textContent();
   console.log('PASS: Browser initialized wallet providers. '+status);
   if(pageErrors.length)throw new Error('Uncaught browser errors: '+JSON.stringify(pageErrors));
