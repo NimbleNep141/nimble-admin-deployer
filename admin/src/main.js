@@ -1,4 +1,5 @@
 import './style.css';
+import { connectOrSignIn } from './wallet-auth.js';
 // Wallet modules load asynchronously after the page handlers are attached.
 // If wallet dependencies fail to initialize, the UI remains responsive.
 import {
@@ -92,7 +93,7 @@ async function initWallet() {
       el('wallet-provider').value=existing;
       state.wallet=await state.selector.wallet(existing);
       state.walletProvider=existing;
-      await refreshAccount();
+      if(await state.wallet.isSignedIn()) await refreshAccount();
       if(state.owner) {
         walletFeedback('Connected to '+state.owner+' through '+WALLET_NAMES[existing]+'.','ok');
       }
@@ -119,16 +120,15 @@ async function connectWallet() {
   // Only the wallet provider signs. Do not ask for access to arbitrary third-party methods.
   state.wallet=await bounded(state.selector.wallet(provider),15000,'Selecting '+WALLET_NAMES[provider]);
   state.walletProvider=provider;
-  walletFeedback(WALLET_NAMES[provider]+' selected. Checking signed-in testnet account…');
-  let accounts=await bounded(state.wallet.getAccounts(),15000,'Reading wallet accounts');
-  if(!accounts.length) {
-    walletFeedback('Requesting authorization from '+WALLET_NAMES[provider]+'. Check the wallet extension or opened window. For Meteor, install and unlock its browser extension.');
-    log('Requesting '+WALLET_NAMES[provider]+' sign-in. Approve the request in your wallet.');
-    // Wallet Selector requires a contract context. No invented method scope or unattended signing.
-    // This is only a wallet identity connection; deployment is approved separately.
-    await bounded(state.wallet.signIn({contractId:'social.testnet'}),60000,'Wallet sign-in');
-  }
-  await refreshAccount();
+  walletFeedback(WALLET_NAMES[provider]+' selected. Checking whether authorization is needed…');
+  const accounts=await bounded(connectOrSignIn(state.wallet,{
+    beforeSignIn: async () => {
+      walletFeedback('Opening '+WALLET_NAMES[provider]+' authorization. Unlock your wallet, select a testnet account and approve the connection.');
+      log('Requesting '+WALLET_NAMES[provider]+' sign-in. Approve in the wallet window.');
+    },
+  }),60000,'Wallet authorization');
+  state.owner=accounts[0]?.accountId??null;
+  render();
   if(!state.owner) {
     walletFeedback('Wallet approval is pending or no testnet account was returned. Check the wallet extension or window and try again if it did not open.','info');
     log('No signed-in account returned yet. Check wallet UI; browser-wallet callbacks may require a reload.');
