@@ -186,7 +186,7 @@ impl CurveToken {
         Promise::new(who.clone())
             .transfer(NearToken::from_yoctonear(amount))
             .then(Promise::new(env::current_account_id()).function_call(
-                "on_proceeds_withdrawn".into(),
+                "on_proceeds_withdrawn",
                 near_sdk::serde_json::to_vec(&near_sdk::serde_json::json!({"account_id":who,"amount":U128(amount)})).unwrap(),
                 NearToken::from_yoctonear(0), WITHDRAW_CALLBACK_GAS,
             ))
@@ -211,7 +211,7 @@ impl CurveToken {
         Promise::new(self.fee_recipient.clone())
             .transfer(NearToken::from_yoctonear(amount))
             .then(Promise::new(env::current_account_id()).function_call(
-                "on_fees_withdrawn".into(),
+                "on_fees_withdrawn",
                 near_sdk::serde_json::to_vec(&near_sdk::serde_json::json!({"amount":U128(amount)})).unwrap(),
                 NearToken::from_yoctonear(0), WITHDRAW_CALLBACK_GAS,
             ))

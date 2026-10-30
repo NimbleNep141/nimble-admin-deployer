@@ -110,9 +110,9 @@ impl Factory {
         Promise::new(token_id).create_account()
             .transfer(NearToken::from_yoctonear(CHILD_FUNDING))
             .deploy_contract(self.template.clone())
-            .function_call("new".into(), args, NearToken::from_yoctonear(0), Gas::from_tgas(65))
+            .function_call("new", args, NearToken::from_yoctonear(0), Gas::from_tgas(65))
             .then(Promise::new(env::current_account_id()).function_call(
-                "on_launch_complete".into(), callback, NearToken::from_yoctonear(0), Gas::from_tgas(18)
+                "on_launch_complete", callback, NearToken::from_yoctonear(0), Gas::from_tgas(18)
             ))
     }
 
