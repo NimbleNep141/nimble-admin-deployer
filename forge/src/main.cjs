@@ -240,6 +240,18 @@ async function deploy(data,event){
   throw e;
  }finally{working=false;previewRecord=null}
 }
+async function inspectContract(value){
+ await network();
+ const id=accountId(value);
+ const state=await queryAccount(id);
+ if(!state)return {account:id,exists:false};
+ const keys=await rpc('query',{request_type:'view_access_key_list',finality:'final',account_id:id});
+ const apiInstance=await api();
+ const expected=current?apiInstance.baseEncode(createHash('sha256').update(current.bytes).digest()):null;
+ return {account:id,exists:true,codeHash:state.code_hash,keys:keys.keys?.length??null,
+  balance:fmt(BigInt(state.amount)),storageUsage:state.storage_usage,
+  expectedCodeHash:expected,matchesImported:expected?state.code_hash===expected:null};
+}
 async function saveContract(data){
  if(!current)throw Error('Import or compile a WASM first.');
  if(working)throw Error('Deployment in progress.');
@@ -254,6 +266,7 @@ async function selectSaved(id){
 }
 function register(){
  bind('network',network);
+ bind('inspect',inspectContract);
  bind('open-wasm',openWasm);
  bind('compile-rust',compileRust);
  bind('artifact',contractMetadata);
