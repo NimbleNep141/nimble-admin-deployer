@@ -36,7 +36,8 @@
           ]
         }
       ],
-      "artifactName": "Nearium-Forge-Windows-${version}.${ext}"
+      "artifactName": "Nearium-Forge-Windows-${version}.${ext}",
+      "icon": "src/assets/nearium-forge-icon.ico"
     }
   }
 }

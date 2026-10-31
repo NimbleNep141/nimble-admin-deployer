@@ -55,4 +55,4 @@ Nearium Forge is a SEPARATE Windows 10/11 desktop application alongside the exis
 Nearium Forge is distinct from the original desktop factory deployer under desktop/.
 
 ## Official app logo
-The original user-provided transparent Nearium Forge hexagonal N PNG (600 × 561 pixels) is bundled unchanged in `src/assets/nearium-forge-logo.png`, and displayed in the header, landing-page hero, app window icon and HTML favicon. GitHub CI verifies the PNG's SHA-256 to ensure it matches the supplied artwork.
+The original user-provided transparent Nearium Forge hexagonal N PNG (600 × 561 pixels) is bundled unchanged in `src/assets/nearium-forge-logo.png`, and displayed in the header, landing-page hero, app window icon and HTML favicon. A matching multi-resolution Windows ICO is bundled in `src/assets/nearium-forge-icon.ico` and configured as the executable icon. GitHub CI verifies the PNG's SHA-256 to ensure it matches the supplied artwork.

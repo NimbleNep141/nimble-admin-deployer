@@ -44,3 +44,14 @@ test('user-supplied Nearium Forge logo is used in header, landing hero, and app 
  const main=fs.readFileSync(path.join(__dirname,'../src/main.cjs'),'utf8');
  assert.match(main,/icon:path\.join\(__dirname,'assets','nearium-forge-logo\.png'\)/);
 });
+
+test('Windows executable icon is derived from the supplied Nearium Forge logo',()=>{
+ const ico=fs.readFileSync(path.join(__dirname,'../src/assets/nearium-forge-icon.ico'));
+ assert.equal(ico.readUInt16LE(0),0);
+ assert.equal(ico.readUInt16LE(2),1);
+ assert.equal(ico.readUInt16LE(4),7);
+ const digest=require('node:crypto').createHash('sha256').update(ico).digest('hex');
+ assert.equal(digest,'512ddf3a1b820894fac870c511292b2fffc265e4c5830e35670d212295436bba');
+ const pkg=JSON.parse(fs.readFileSync(path.join(__dirname,'../package.json'),'utf8'));
+ assert.equal(pkg.build.win.icon,'src/assets/nearium-forge-icon.ico');
+});
