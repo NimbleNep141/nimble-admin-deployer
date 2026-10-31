@@ -100,12 +100,22 @@ function contractMetadata(){
  if(!current)return null;
  return {name:current.name,bytes:current.bytes.length,hash:current.hash,source:current.source};
 }
-async function compileRust(){
+async function compileRust(_options,event){
  if(working)throw Error('Deployment in progress.');
  const selected=await dialog.showOpenDialog({title:'Choose trusted Rust NEAR project containing Cargo.toml',properties:['openDirectory']});
  if(selected.canceled)return {cancelled:true};
  const root=selected.filePaths[0];
  if(!(await stat(path.join(root,'Cargo.toml')).catch(()=>null)))throw Error('Folder must contain a Cargo.toml.');
+ // Cargo build scripts and dependencies can execute native code on the host OS.
+ const parent=BrowserWindow.fromWebContents(event.sender);
+ if(!parent)throw Error('Cannot request native compile permission.');
+ const choice=await dialog.showMessageBox(parent,{
+   title:'Compile Trusted Rust Source?',type:'warning',
+   buttons:['Cancel','Compile Rust Project'],defaultId:0,cancelId:0,
+   message:'Compile this Rust project with local cargo-near?',
+   detail:'Cargo build.rs and dependencies may execute programs on your Windows computer. Compile only source that you trust.\n\nProject: '+root
+ });
+ if(choice.response!==1)return {cancelled:true};
  // Rust Cargo build.rs and dependencies can execute native code. Only compile trusted sources.
  const output=await new Promise((resolve,reject)=>{
    const child=spawn('cargo',['near','build','non-reproducible-wasm','--no-abi'],{cwd:root,windowsHide:true,shell:false,
@@ -289,6 +299,6 @@ app.whenReady().then(async()=>{
      contextIsolation:true,nodeIntegration:false,webSecurity:true}});
  win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
  win.webContents.on('will-navigate',e=>e.preventDefault());
- win.removeMenu();await win.loadFile(path.join(__dirname,'index.html'));win.once('ready-to-show',()=>win.show());
+ win.removeMenu();win.once('ready-to-show',()=>win.show());await win.loadFile(path.join(__dirname,'index.html'));
 }).catch(error=>{dialog.showErrorBox('Nearium Forge startup failed',safeError(error));app.quit()});
 app.on('window-all-closed',()=>{signer=null;current=null;app.quit()});
