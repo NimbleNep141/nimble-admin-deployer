@@ -1,0 +1,34 @@
+<!doctype html><html lang="en"><head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; connect-src 'none'; object-src 'none'; form-action 'none'"/>
+<title>Nearium Desktop Deployer</title><link rel="stylesheet" href="./style.css"/></head><body>
+<main>
+  <header><div class="brand"><div class="logo">N</div><div><span class="eyebrow">NEARIUM · WINDOWS DEPLOYER</span><h1>Deploy Factory</h1><p>Official NEAR Testnet · local signing · verified WASM</p></div></div><span class="pill">● TESTNET ONLY</span></header>
+  <div class="caution"><strong>Experimental testnet contract.</strong> This application is unsigned and unaudited. Use a dedicated, disposable NEAR testnet account only. It does not store private keys. The key remains in memory until you disconnect or close the app.</div>
+  <div class="metrics"><div><label>NETWORK</label><strong>NEAR Testnet</strong></div><div><label>FACTORY BUILD</label><strong id="stat-build">Not loaded</strong></div><div><label>LOCAL SIGNER</label><strong id="stat-key">Disconnected</strong></div><div><label>FACTORY</label><strong id="stat-factory">Not checked</strong></div></div>
+  <section><div class="head"><span class="num">01</span><div><h2>Verify Nearium factory contract</h2><p>Fetch the published WASM and verify its SHA-256 against the build manifest.</p></div></div>
+    <button id="load" class="primary">Verify Published Factory</button>
+    <div class="readout" id="build-info">Your factory code is downloaded from the published Nearium GitHub Pages build. No code is compiled here.</div>
+  </section>
+  <section><div class="head"><span class="num">02</span><div><h2>Owner account and local signing</h2><p>Use your own NEAR testnet account. Meteor wallet approval is not involved.</p></div></div>
+    <div class="field"><label for="owner">Owner account (.testnet)</label><input id="owner" autocomplete="off" spellcheck="false" placeholder="youraccount.testnet"/></div>
+    <div class="field"><label for="secret">Exported full-access testnet private key (session only)</label><input id="secret" type="password" autocomplete="off" spellcheck="false" placeholder="ed25519:..." maxlength="512"/></div>
+    <div class="buttons"><button id="import" class="secondary">Connect Local Key</button><button id="file" class="secondary">Select Local Key File…</button><button id="clear" class="ghost">Disconnect</button></div>
+    <div class="readout" id="key-info">No signing key loaded. Import a dedicated testnet account's full-access key from your computer. Never paste a recovery phrase, and never use a mainnet key.</div>
+  </section>
+  <section><div class="head"><span class="num">03</span><div><h2>Prepare deployment</h2><p>Factory is a new child of your owner account. No access keys will be installed on the factory.</p></div></div>
+    <div class="two"><div class="field"><label for="prefix">Factory prefix</label><input id="prefix" spellcheck="false" value="launchpad" maxlength="24"/></div><div class="field"><label for="funding">Initial funding (testnet NEAR)</label><input id="funding" type="text" inputmode="decimal" value="6"/></div></div>
+    <div class="field"><label>Factory account</label><div id="target" class="readout mono">Enter your owner above</div></div>
+    <button id="check" class="secondary">Check On-chain Status &amp; Funding</button>
+    <div class="readout" id="review">Verify WASM, import a local key, then check the contract address before deployment.</div>
+  </section>
+  <section><div class="head"><span class="num">04</span><div><h2>Deploy factory</h2><p>One transaction: CreateAccount → Transfer → DeployContract → FunctionCall(new).</p></div></div>
+    <div class="no-key">✓ No AddKey action &nbsp; · &nbsp; ✓ Owner-controlled initialization &nbsp; · &nbsp; ✓ Testnet only</div>
+    <div class="field"><label for="confirmation">Type the exact factory account address to confirm</label><input id="confirmation" autocomplete="off" spellcheck="false" placeholder="launchpad.youraccount.testnet"/></div>
+    <label class="consent"><input type="checkbox" id="ack"/><span>I understand this signs a real testnet transaction; a failed deployment may leave a funded keyless account. I will inspect receipts before retrying.</span></label>
+    <button id="deploy" class="primary large" disabled>Deploy Factory</button>
+    <div class="readout" id="result">No transaction submitted.</div>
+  </section>
+  <footer>Nearium Desktop Deployer v0.1.0 · NOT MAINNET-READY · Contracts are unaudited · No key is saved to disk</footer>
+</main>
+<script src="./renderer.js"></script></body></html>

@@ -1,0 +1,51 @@
+name: Nearium Windows Desktop Deployer
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/windows-deployer.yml'
+permissions:
+  contents: read
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Validate source syntax
+        run: npm run check
+      - name: Run safety unit tests
+        run: npm test
+      - name: Build standalone Windows portable executable
+        run: npm run dist
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Compute SHA-256
+        shell: pwsh
+        run: |
+          Get-ChildItem dist\*.exe | ForEach-Object {
+            $hash=(Get-FileHash $_.FullName -Algorithm SHA256).Hash
+            "$hash  $($_.Name)" | Out-File -FilePath "dist\SHA256SUMS.txt" -Encoding ascii -Append
+          }
+          Get-Content dist\SHA256SUMS.txt
+      - name: Upload Windows app
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nearium-Windows-10-11-Deployer
+          path: |
+            desktop/dist/*.exe
+            desktop/dist/SHA256SUMS.txt
+          retention-days: 30
+          if-no-files-found: error
