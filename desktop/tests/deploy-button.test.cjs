@@ -9,7 +9,7 @@ const main=fs.readFileSync(path.join(__dirname,'../src/main.cjs'),'utf8');
 
 function prepare(deployReply) {
   const ids=['owner','prefix','funding','secret','ack','confirmation','load','import','file','clear',
-    'check','deploy','build-info','key-info','review','result','target','stat-build','stat-key','stat-factory'];
+    'check','deploy','build-info','key-info','review','result','target','stat-build','stat-key','stat-factory','deploy-hint'];
   const elements=new Map(ids.map(id=>[id,{
     id,value:'',checked:false,disabled:false,textContent:'',className:'',events:{},
     addEventListener(name,fn){this.events[name]=fn;}
