@@ -115,7 +115,7 @@ async function preview(data){
   return {owner,target:plan.target,funding:plan.funding,minFunding:plan.minFunding,exists:target.exists,existing:target.exists?target:null,
     hasSigner,canDeploy,reason,build:build.metadata,ownerBalance:account?formatNear(BigInt(account.amount)):null};
 }
-async function deploy(data){
+async function deploy(data,event){
   txGuard();busy=true;
   let attempted=false;
   try{
@@ -129,6 +129,22 @@ async function deploy(data){
     if(await accountState(state.target))throw Error('Factory account appeared on-chain. Deployment cancelled.');
     const ak=await rpc('query',{request_type:'view_access_key',finality:'final',account_id:state.owner,public_key:signer.publicKey});
     if(ak.permission!=='FullAccess')throw Error('The owner key is no longer a full-access key.');
+    // Native Windows confirmation; cancel is always the default.
+    const parent=BrowserWindow.fromWebContents(event?.sender);
+    if(!parent||parent.isDestroyed())throw Error('Windows confirmation unavailable. No transaction submitted.');
+    const answer=await dialog.showMessageBox(parent,{
+      type:'warning',
+      title:'Confirm Nearium Testnet Deployment',
+      buttons:['Cancel','Deploy Factory'],
+      defaultId:0,
+      cancelId:0,
+      noLink:true,
+      message:'Deploy '+state.target+' on NEAR Testnet?',
+      detail:'Create factory, fund with '+state.funding+' testnet NEAR, deploy verified code, and initialize owner '+state.owner+'. No factory keys will be added. A failure may strand the funds.'
+    });
+    if(answer.response!==1)return {cancelled:true,account:state.target};
+    await verifyNetwork();
+    if(await accountState(state.target))throw Error('Factory account exists after confirmation. Nothing submitted.');
     const {actions}=await getApi();
     const plan=preparePlan({owner:state.owner,prefix:data.prefix,funding:data.funding,wasmSize:build.wasm.length,storagePerByte:await storagePrice()});
     const txActions=factoryActions(actions,build.wasm,plan);
@@ -154,8 +170,8 @@ function safeMessage(e){
   return msg.slice(0,400).replace(/ed25519:[1-9A-HJ-NP-Za-km-z]{70,110}/g,'[REDACTED]');
 }
 function handle(name,fn){
-  ipcMain.handle('nearium:'+name,async(_event,data)=>{
-    try{return {ok:true,data:await fn(data)}}catch(e){return {ok:false,error:safeMessage(e)}}
+  ipcMain.handle('nearium:'+name,async(event,data)=>{
+    try{return {ok:true,data:await fn(data,event)}}catch(e){return {ok:false,error:safeMessage(e)}}
   });
 }
 handle('load-build',loadBuild);

@@ -27,7 +27,7 @@
     <div class="field"><label for="confirmation">Type the exact factory account address to confirm</label><input id="confirmation" autocomplete="off" spellcheck="false" placeholder="launchpad.youraccount.testnet"/></div>
     <label class="consent"><input type="checkbox" id="ack"/><span>I understand this signs a real testnet transaction; a failed deployment may leave a funded keyless account. I will inspect receipts before retrying.</span></label>
     <button id="deploy" class="primary large" disabled>Deploy Factory</button>
-    <div class="readout" id="result">No transaction submitted.</div>
+    <div class="readout" id="result" role="status" aria-live="polite">No transaction submitted.</div>
   </section>
   <footer>Nearium Desktop Deployer v0.1.0 · NOT MAINNET-READY · Contracts are unaudited · No key is saved to disk</footer>
 </main>

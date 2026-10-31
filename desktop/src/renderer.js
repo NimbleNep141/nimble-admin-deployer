@@ -68,16 +68,25 @@ el('check').addEventListener('click',async()=>{
   }catch(e){out('review',e.message,'bad');status('stat-factory','Check failed','bad')}finally{busy(false)}
 });
 el('deploy').addEventListener('click',async()=>{
-  if(!ready||!preview||preview.target!==el('confirmation').value.trim())return;
-  if(!window.confirm('Submit ONE NEAR TESTNET deployment transaction to '+preview.target+' with '+preview.funding+' testnet NEAR? This cannot be undone, and a failure might leave a keyless funded account.'))return;
+  if(!ready||!preview){out('result','Not ready. Verify factory build, import local signer, then check account and funding.','bad');return;}
+  if(!el('ack').checked){out('result','Acknowledge the deployment warning first.','bad');return;}
+  if(preview.target!==el('confirmation').value.trim()){out('result','The typed factory account does not match the checked target.','bad');return;}
   busy(true);ready=false;
-  out('result','Signing and submitting locally. If this stalls, check NEAR testnet explorer before retrying.');
+  out('result','Checking again and opening native Windows confirmation. No transaction submitted yet.');
   try{
     const result=await invoke('deploy',{...request(),confirmation:el('confirmation').value.trim(),acknowledge:el('ack').checked});
-    const msg='Factory: '+result.account+'\nTransaction: '+(result.txHash||'hash unavailable')+'\nStatus: '+(result.verified&&!result.failed?'DEPLOYED AND VERIFIED':'NOT FULLY VERIFIED')+'\nKeys: '+(result.factory?.keys??'unknown')+'\nOwner: '+(result.factory?.owner??'unknown')+(result.warning?'\nIMPORTANT: '+result.warning:'');
-    out('result',msg,result.verified&&!result.failed?'good':'bad');
-    status('stat-factory',result.verified&&!result.failed?'Deployed':'Investigate',result.verified&&!result.failed?'good':'bad');
-  }catch(e){out('result','Uncertain or failed deployment: '+e.message+'\nInspect the blockchain BEFORE trying again.','bad')}
-  finally{el('ack').checked=false;el('confirmation').value='';busy(false)}
+    if(result.cancelled){out('result','Deployment cancelled. No transaction was submitted.');return;}
+    const verified=result.verified&&!result.failed;
+    out('result','Factory: '+result.account+'\\nTransaction: '+(result.txHash||'unavailable')+
+      '\\nStatus: '+(verified?'DEPLOYED AND VERIFIED':'NOT FULLY VERIFIED')+
+      '\\nKeys: '+(result.factory?.keys??'unknown')+
+      '\\nOwner: '+(result.factory?.owner??'unknown')+
+      (result.warning?'\\nIMPORTANT: '+result.warning:''),verified?'good':'bad');
+    status('stat-factory',verified?'Deployed':'Investigate',verified?'good':'bad');
+  }catch(e){
+    out('result','Deployment failed or status uncertain: '+e.message+'\\nCheck the NEAR testnet explorer BEFORE trying again.','bad');
+  }finally{
+    el('ack').checked=false;el('confirmation').value='';ready=false;busy(false);
+  }
 });
 el('target').textContent=target();
