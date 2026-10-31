@@ -265,7 +265,7 @@ async function inspectContract(value){
 async function saveContract(data){
  if(!current)throw Error('Import or compile a WASM first.');
  if(working)throw Error('Deployment in progress.');
- const x=await library.save({name:data?.name||current.name,preset:data?.preset||{},wasmBytes:current.bytes});
+ const x=await library.save({name:data?.name||current.name,preset:data?.preset||{},wasmBytes:current.bytes,deployment:data?.deployment||null});
  return x;
 }
 async function selectSaved(id){

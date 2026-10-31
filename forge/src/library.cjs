@@ -2,7 +2,7 @@
 const {readFile,writeFile,mkdir,rename,copyFile,stat,unlink}=require('node:fs/promises');
 const path=require('node:path');
 const {randomUUID}=require('node:crypto');
-const {wasm,sha}=require('./core.cjs');
+const {wasm,sha,accountId}=require('./core.cjs');
 const MAX_ITEMS=500;
 function validTitle(s){if(typeof s!=='string'||!s.trim()||s.trim().length>70)throw Error('Saved contract name must be 1–70 characters.');return s.trim();}
 function validPreset(p){
@@ -23,15 +23,21 @@ class Library{
    const content=await readFile(this.entriesFile,'utf8');
    const items=JSON.parse(content);
    if(!Array.isArray(items))throw Error('Saved contract library is not an array.');
-   return items.slice(0,MAX_ITEMS).map(({id,name,sha256,bytes,preset,created})=>({id,name,sha256,bytes,preset,created}));
+   return items.slice(0,MAX_ITEMS).map(({id,name,sha256,bytes,preset,deployment,created})=>({id,name,sha256,bytes,preset,deployment:deployment||null,created}));
   }catch(e){if(e.code==='ENOENT')return [];throw e;}
  }
- async save({name,preset,wasmBytes}){
+ async save({name,preset,wasmBytes,deployment=null}){
   validTitle(name);const binary=wasm(wasmBytes),hash=sha(binary);
   const entries=await this.list();if(entries.length>=MAX_ITEMS)throw Error('Library limit of 500 entries reached.');
   const file=path.join(this.assets,hash+'.wasm');
   try{await writeFile(file,binary,{flag:'wx'});}catch(e){if(e.code!=='EEXIST')throw e;}
-  const entry={id:randomUUID(),name:validTitle(name),sha256:hash,bytes:binary.length,preset:validPreset(preset),created:new Date().toISOString()};
+  let deploymentRecord=null;
+  if(deployment&&typeof deployment==='object'){
+   const address=accountId(deployment.address);
+   const txHash=typeof deployment.txHash==='string'&&/^[1-9A-HJ-NP-Za-km-z]{35,65}$/.test(deployment.txHash)?deployment.txHash:null;
+   deploymentRecord={address,txHash,verified:deployment.verified===true};
+  }
+  const entry={id:randomUUID(),name:validTitle(name),sha256:hash,bytes:binary.length,preset:validPreset(preset),deployment:deploymentRecord,created:new Date().toISOString()};
   entries.unshift(entry);
   await this.store(entries);
   return entry;

@@ -1,7 +1,7 @@
 'use strict';
 const el=id=>document.getElementById(id);
 let active='home',view='deploy',artifact=null,localSigner=null,review=null,working=false;
-let saved=[],deletePending=null,submittedTarget=null;
+let saved=[],deletePending=null,submittedTarget=null,lastDeployment=null;
 const names={deploy:'Deployment Studio',library:'My Contract Library',verify:'Verify On-chain',build:'Compile / Import'};
 const descriptions={
  deploy:'A precision workflow from compiled bytecode to verified contract.',
@@ -73,11 +73,11 @@ function updateDeploy(){
 }
 function busy(value){
  working=value;
- for(const id of ['wasm-import','rust-compile','wasm-import-build','rust-compile-build','key-connect','key-file','key-disconnect','preflight','save-current','saved-load','saved-delete','saved-refresh','verify-button','deploy'])el(id).disabled=value;
+ for(const id of ['wasm-import','rust-compile','wasm-import-build','rust-compile-build','key-connect','key-file','key-disconnect','preflight','save-current','saved-load','saved-delete','saved-refresh','saved-verify','verify-button','deploy'])el(id).disabled=value;
  if(!value)updateDeploy();
 }
 function artifactUpdate(meta){
- artifact=meta;
+ artifact=meta;lastDeployment=null;
  if(meta){
   setText('artifact-status','WASM VERIFIED');el('artifact-status').className='status-dot live';
   setText('mini-wasm',meta.name);setText('artifact-detail',meta.name+' · '+meta.bytes.toLocaleString('en-US')+' bytes\nSHA-256 '+meta.hash);
@@ -164,6 +164,7 @@ async function doDeploy(){
   const report=await call('deploy',{config:config(),token:review.token,confirm:el('confirmation').value.trim(),ack:true});
   if(report.cancelled){setResult('Cancelled by user. No transaction was submitted.');notify('Deployment cancelled.');return;}
   submittedTarget=report.target;
+  lastDeployment={address:report.target,txHash:report.txHash,verified:report.verified};
   setResult('TARGET          '+report.target+
     '\nTX HASH         '+(report.txHash||'unavailable')+
     '\nSTATUS          '+(report.verified?'DEPLOYED · CODE HASH VERIFIED':'NEEDS INVESTIGATION')+
@@ -189,15 +190,15 @@ async function refreshLibrary(){
 }
 function savedUpdate(){
  const entry=saved.find(x=>x.id===el('saved-select').value);
- if(entry)setText('saved-detail',entry.name+'\nSHA-256 '+entry.sha256+'\n'+entry.bytes+' bytes · Added '+entry.created);
+ if(entry)setText('saved-detail',entry.name+'\nSHA-256 '+entry.sha256+'\n'+entry.bytes+' bytes · Added '+entry.created+(entry.deployment?'\nDeployed: '+entry.deployment.address+'\nTransaction: '+(entry.deployment.txHash||'not recorded'):''));
  else setText('saved-detail','Select a saved contract to view its WASM hash and deployment preset.');
- el('saved-load').disabled=!entry;el('saved-delete').disabled=!entry;
+ el('saved-load').disabled=!entry;el('saved-delete').disabled=!entry;el('saved-verify').disabled=!entry?.deployment?.address;
  deletePending=null;setText('saved-delete','Remove from Library');
 }
 async function saveCurrent(){
  busy(true);
  try{
-  const item=await call('save',{name:el('save-name').value.trim(),preset:config()});
+  const item=await call('save',{name:el('save-name').value.trim(),preset:config(),deployment:lastDeployment});
   notify('Saved '+item.name+' to your local contract library. No signing keys were saved.');
   await refreshLibrary();el('saved-select').value=item.id;savedUpdate();showView('library');
  }catch(e){notify('Save failed: '+e.message,true)}finally{busy(false)}
@@ -252,6 +253,8 @@ wire('toggle-secret',()=>{el('secret').type=el('secret').type==='password'?'text
 wire('key-connect',()=>connectKey(false));wire('key-file',()=>connectKey(true));wire('key-disconnect',disconnectKey);
 wire('preflight',doPreflight);wire('deploy',doDeploy);wire('save-current',saveCurrent);
 wire('saved-load',loadSaved);wire('saved-delete',deleteSaved);wire('saved-refresh',refreshLibrary);wire('verify-button',verify);
+wire('saved-verify',()=>{const entry=saved.find(x=>x.id===el('saved-select').value);if(!entry?.deployment?.address)return;
+ el('verify-address').value=entry.deployment.address;showView('verify');verify();});
 el('saved-select').addEventListener('change',savedUpdate);
 const inputs=['owner','mode','prefix','funding','key-mode','replace-code','init-method','init-args','gas','init-deposit'];
 for(const id of inputs){

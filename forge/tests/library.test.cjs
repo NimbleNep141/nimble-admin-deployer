@@ -13,9 +13,12 @@ test('save/load/delete local contract without storing secrets',async()=>{
   const list=await library.list();assert.equal(list.length,1);assert.equal(list[0].name,'My NFT');
   const loaded=await library.load(item.id);assert.deepEqual(loaded.bytes,binary);
   assert.equal(loaded.entry.sha256,item.sha256);
+  const recorded=await library.save({name:'My Deployed Contract',preset:{},wasmBytes:binary,
+    deployment:{address:'contract.owner.testnet',txHash:'3'.repeat(44),verified:true}});
+  assert.equal((await library.load(recorded.id)).entry.deployment.address,'contract.owner.testnet');
   const disk=await readFile(path.join(temp,'forge-library','contracts.json'),'utf8');
   assert.doesNotMatch(disk,/private_key|secret_key|recoveryPhrase/);
-  await library.delete(item.id);assert.equal((await library.list()).length,0);
+  await library.delete(item.id);await library.delete(recorded.id);assert.equal((await library.list()).length,0);
  }finally{await rm(temp,{recursive:true,force:true});}
 });
 test('reject corrupted saved contract bytes',async()=>{
