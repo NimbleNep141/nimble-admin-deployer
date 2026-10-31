@@ -3,7 +3,7 @@ const el=id=>document.getElementById(id);
 let ready=false,preview=null,working=false;
 function out(id,message,kind=''){el(id).textContent=message;el(id).className='readout '+kind;}
 function status(id,message,kind=''){el(id).textContent=message;el(id).className=kind;}
-function reset(){preview=null;ready=false;el('deploy').disabled=true;out('review','Configuration changed. Check the account again before deployment.');}
+function reset(){preview=null;ready=false;updateDeployButton();out('review','Configuration changed. Check the account again before deployment.');}
 function request(){return {owner:el('owner').value.trim(),prefix:el('prefix').value.trim(),funding:el('funding').value.trim()};}
 function target(){
   const {owner,prefix}=request();
@@ -11,7 +11,22 @@ function target(){
   if(!/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/.test(prefix)||!owner.endsWith('.testnet'))return 'Enter a named .testnet owner account';
   return candidate;
 }
-function busy(value){working=value;for(const id of ['load','import','file','clear','check','deploy'])el(id).disabled=value||id==='deploy'&&!ready;}
+function busy(value){
+  working=value;
+  for(const id of ['load','import','file','clear','check'])el(id).disabled=value;
+  updateDeployButton();
+}
+function updateDeployButton(){
+  const matched=Boolean(preview&&el('confirmation').value.trim()===preview.target);
+  const acknowledged=el('ack').checked;
+  const enabled=!working&&ready&&matched&&acknowledged;
+  el('deploy').disabled=!enabled;
+  el('deploy-hint').textContent=working?'Operation in progress. Do not submit again.':
+    !ready?'Not ready: verify build, connect testnet key, then click Check On-chain Status & Funding.':
+    !matched?'Enter the exact factory account address shown in Step 3.':
+    !acknowledged?'Tick the deployment warning checkbox to enable Deploy Factory.':
+    'Ready to deploy. Clicking Deploy Factory will open the native Windows approval dialog.';
+}
 async function invoke(method,data){
   const reply=await window.nearium[method](data);
   if(!reply?.ok)throw Error(reply?.error||'Unexpected error');
@@ -19,9 +34,7 @@ async function invoke(method,data){
 }
 el('owner').addEventListener('input',()=>{el('target').textContent=target();reset();});
 for(const field of ['prefix','funding'])el(field).addEventListener('input',()=>{el('target').textContent=target();reset();});
-for(const field of ['ack','confirmation'])el(field).addEventListener('input',()=>{
-  el('deploy').disabled=working||!ready||!el('ack').checked||el('confirmation').value.trim()!==preview?.target;
-});
+for(const field of ['ack','confirmation'])el(field).addEventListener('input',updateDeployButton);
 el('load').addEventListener('click',async()=>{
   busy(true);try{
     const b=await invoke('loadBuild');
@@ -64,7 +77,7 @@ el('check').addEventListener('click',async()=>{
       status('stat-factory','Available',p.canDeploy?'good':'');
       out('review','Target: '+p.target+'\nFunding: '+p.funding+' testnet NEAR\nMinimum storage estimate: '+p.minFunding+' NEAR\nOwner balance (total): '+(p.ownerBalance??'not available')+' testnet NEAR\n'+(p.canDeploy?'READY. Confirm exact factory address and warnings below.':'NOT READY: '+p.reason),p.canDeploy?'good':'bad');
     }
-    ready=p.canDeploy;el('deploy').disabled=!ready||!el('ack').checked||el('confirmation').value.trim()!==p.target;
+    ready=p.canDeploy;updateDeployButton();
   }catch(e){out('review',e.message,'bad');status('stat-factory','Check failed','bad')}finally{busy(false)}
 });
 el('deploy').addEventListener('click',async()=>{
@@ -90,3 +103,4 @@ el('deploy').addEventListener('click',async()=>{
   }
 });
 el('target').textContent=target();
+updateDeployButton();
