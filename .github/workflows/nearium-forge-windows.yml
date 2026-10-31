@@ -1,0 +1,50 @@
+name: Nearium Forge · Windows Desktop Studio
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'forge/**'
+      - '.github/workflows/nearium-forge-windows.yml'
+permissions:
+  contents: read
+jobs:
+  build-forge:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: forge
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install app dependencies
+        run: npm install --no-audit --no-fund
+      - name: Validate JavaScript syntax
+        run: npm run check
+      - name: Run Forge safety and library tests
+        run: npm test
+      - name: Package portable Windows application
+        run: npm run dist
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Record executable SHA-256
+        shell: pwsh
+        run: |
+          Get-ChildItem dist\*.exe | ForEach-Object {
+            "$( (Get-FileHash $_.FullName -Algorithm SHA256).Hash )  $($_.Name)" | Out-File dist\SHA256SUMS.txt -Encoding ascii -Append
+          }
+          Get-Content dist\SHA256SUMS.txt
+      - name: Publish Nearium Forge build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nearium-Forge-Windows-10-11
+          path: |
+            forge/dist/*.exe
+            forge/dist/SHA256SUMS.txt
+          retention-days: 30
+          if-no-files-found: error
