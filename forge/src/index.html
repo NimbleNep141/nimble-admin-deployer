@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; base-uri 'none'; object-src 'none'; form-action 'none'; frame-ancestors 'none'"/>
+<title>Nearium Forge · Smart Contract Deployment Studio</title><link rel="stylesheet" href="./style.css"/></head>
+<body>
+<div class="app-shell">
+<header class="topbar">
+  <div class="brand"><div class="brand-mark"><span>✦</span></div><div class="brand-type"><b>NEARIUM <em>FORGE</em></b><small>SMART CONTRACT DEPLOYMENT STUDIO</small></div></div>
+  <div class="top-right"><span class="env-pill"><span class="live-dot"></span> NEAR TESTNET</span><span class="top-divider"></span><span class="version">DESKTOP ALPHA v0.1.0</span></div>
+</header>
+<div id="home" class="page">
+  <div class="home-hero">
+    <div class="hero-copy">
+      <div class="eyebrow"><span class="eyebrow-line"></span> THE NEARIUM ECOSYSTEM PRESENTS <span class="eyebrow-line"></span></div>
+      <h1>Build your<br/>next <span class="gradient-word">breakthrough.</span></h1>
+      <p class="hero-subtitle">Smart Contract Deployment Studio</p>
+      <p class="hero-description">Your contract deserves a better launchpad. Build NEAR-compatible WASM, deploy with precision, and verify every step. One focused Windows workspace.</p>
+      <div class="hero-actions"><button id="enter-studio" class="button button-glow button-xl">Launch Deployment Studio <span>↗</span></button><button id="open-library-home" class="button button-outline button-xl">My Contract Library <span>▤</span></button></div>
+      <div class="hero-tagline">COMPILE <span>✦</span> DEPLOY <span>✦</span> VERIFY</div>
+    </div>
+    <div class="hero-visual" aria-hidden="true">
+      <div class="orbit orbit-1"></div><div class="orbit orbit-2"></div><div class="orbit orbit-3"></div>
+      <div class="glow-sphere"></div><div class="forge-core"><div class="core-facet core-one"></div><div class="core-facet core-two"></div><span class="core-symbol">N</span></div>
+      <div class="floating floating-a"><i>◈</i><span>CONTRACT VERIFIED<small>SHA-256 · MATCHED</small></span><b>✓</b></div>
+      <div class="floating floating-b"><i>⌘</i><span>DEPLOYMENT ENGINE<small>TESTNET READY</small></span><b class="green-led"></b></div>
+      <div class="particle pt1"></div><div class="particle pt2"></div><div class="particle pt3"></div><div class="particle pt4"></div>
+    </div>
+  </div>
+  <div class="home-bottom">
+    <div class="section-kicker">THE FORGE WORKFLOW <span>THREE STAGES. ONE STUDIO.</span></div>
+    <div class="feature-grid">
+      <div class="feature"><div class="feature-icon purple">⌘</div><span>01 / BUILD</span><h3>Compile</h3><p>Build trusted Rust NEAR projects with local cargo-near or import ready-to-deploy WASM from any compatible toolchain.</p></div>
+      <div class="feature"><div class="feature-icon mint">⟠</div><span>02 / SHIP</span><h3>Deploy</h3><p>New accounts, existing-account upgrades, custom initialization and local authorization, all in one guided workflow.</p></div>
+      <div class="feature"><div class="feature-icon blue">◎</div><span>03 / CONFIRM</span><h3>Verify</h3><p>Inspect on-chain code hashes, access keys, account balances and transaction results before your next move.</p></div>
+    </div>
+  </div>
+  <div class="landing-footer"><span>TESTNET-FIRST. SECURITY BY DESIGN.</span><span>BUILT FOR THE NEAR ECOSYSTEM <b>✦</b></span></div>
+</div>
+<div id="studio" class="page" hidden>
+  <div class="workspace">
+    <aside class="sidebar">
+      <div class="sidebar-label">WORKSPACE</div>
+      <button class="nav-link selected" data-view="deploy"><span class="nav-icon">⟠</span> Deployment Studio <span class="nav-arrow">›</span></button>
+      <button class="nav-link" data-view="library"><span class="nav-icon">▤</span> My Contracts</button>
+      <button class="nav-link" data-view="verify"><span class="nav-icon">◎</span> Verify On-chain</button>
+      <button class="nav-link" data-view="build"><span class="nav-icon">⌘</span> Compile / Import</button>
+      <div class="sidebar-rule"></div><div class="sidebar-label">ENVIRONMENT</div>
+      <div class="side-metric"><span>Network</span><b>NEAR Testnet</b></div>
+      <div class="side-metric"><span>Contract</span><b id="mini-wasm">None selected</b></div>
+      <div class="side-metric"><span>Signer</span><b id="mini-signer">Not connected</b></div>
+      <div class="sidebar-bottom">
+        <span class="security-icon">◇</span>
+        <b>Local-first by design</b>
+        <p>Contracts stay on your PC. Private keys are never added to the saved-contract library.</p>
+        <button id="back-home" class="text-button">← Studio home</button>
+      </div>
+    </aside>
+    <main class="workspace-main">
+      <div class="workspace-toolbar"><div><span class="crumb">NEARIUM <span>/</span> FORGE <span>/</span> <b id="crumb-page">DEPLOY</b></span><h2 id="workspace-title">Deployment Studio</h2><p id="workspace-desc">A precision workflow from compiled bytecode to verified contract.</p></div><div class="toolbar-stats"><span class="tiny-square"></span><span id="network-status">Testnet connection unchecked</span></div></div>
+      <div id="notice" class="notice" hidden role="status" aria-live="polite"></div>
+
+      <section class="workspace-view" id="view-deploy">
+        <div class="compact-bar"><div class="bar-avatar">⌘</div><div><b>Deployment pipeline</b><span id="pipeline-hint">Import a contract, connect your account, then run preflight.</span></div><div class="bar-label">TESTNET BUILD</div></div>
+        <div class="two-col">
+          <div class="stack">
+            <div class="panel">
+              <div class="panel-title"><div><span class="step-index">01</span><b>Contract artifact</b></div><span id="artifact-status" class="status-dot neutral">NO WASM</span></div>
+              <div id="artifact-detail" class="artifact-summary"><div class="file-icon">W</div><div><b>No contract selected</b><span>Import compiled .wasm or build Rust source</span></div></div>
+              <div class="buttons"><button id="wasm-import" class="button button-mint">Import .WASM <span>＋</span></button><button id="rust-compile" class="button button-outline">Compile Rust Project</button></div>
+              <div class="soft-note">For Rust, cargo-near must be installed locally. JavaScript/TypeScript and other contracts can be compiled separately and imported as WASM.</div>
+            </div>
+            <div class="panel">
+              <div class="panel-title"><div><span class="step-index">02</span><b>Local signer</b></div><span id="signer-status" class="status-dot neutral">DISCONNECTED</span></div>
+              <label for="owner">Testnet account address</label><input id="owner" type="text" autocomplete="off" spellcheck="false" placeholder="youraccount.testnet"/>
+              <label for="secret">Full-access testnet private key (session only)</label><div class="secret-wrap"><input id="secret" type="password" autocomplete="off" spellcheck="false" placeholder="ed25519:..."/><button id="toggle-secret" type="button" class="secret-toggle" aria-label="Show or hide key">◉</button></div>
+              <div class="buttons"><button id="key-connect" class="button button-outline">Connect Local Key</button><button id="key-file" class="button button-outline">Choose Key File</button><button id="key-disconnect" class="button button-quiet">Disconnect</button></div>
+              <p class="field-info" id="signer-detail">Use a separate disposable testnet account. Never use a recovery phrase or mainnet key.</p>
+            </div>
+          </div>
+          <div class="stack">
+            <div class="panel">
+              <div class="panel-title"><div><span class="step-index">03</span><b>Deployment settings</b></div><span class="panel-help">CONFIGURE</span></div>
+              <label for="mode">Deployment target</label><select id="mode"><option value="new">Create new child account</option><option value="existing">Deploy to my existing account</option></select>
+              <div id="child-options"><div class="form-grid"><div><label for="prefix">Contract prefix</label><input id="prefix" value="contract" spellcheck="false"/></div><div><label for="funding">Initial funding (NEAR)</label><input id="funding" value="6" inputmode="decimal"/></div></div>
+                <label for="key-mode">New account ownership</label><select id="key-mode"><option value="controlled">Recoverable: add existing signer key</option><option value="keyless">Immutable: no access keys (advanced)</option></select>
+                <p class="field-info warning-text" id="keyless-warning" hidden>Keyless accounts cannot be upgraded or repaired through ordinary access-key transactions. Incorrect initialization can permanently strand funds.</p>
+              </div>
+              <div id="existing-options" hidden><label class="checkbox-row"><input type="checkbox" id="replace-code"/> I approve replacing code already installed on this account.</label><p class="field-info warning-text">Upgrades can irreversibly break contract state. Only full-access keys belonging to the target account can authorize replacement.</p></div>
+              <label class="space-top">Expected contract address</label><div id="target" class="address-box">Enter signer account above</div>
+              <div class="panel-divider"></div>
+              <div class="subsection-title">INITIALIZATION <span>OPTIONAL</span></div>
+              <div class="form-grid"><div><label for="init-method">Method name</label><input id="init-method" placeholder="new / init / blank"/></div><div><label for="gas">Prepaid gas (TGas)</label><input id="gas" value="30"/></div></div>
+              <label for="init-args">JSON arguments</label><textarea id="init-args" rows="3" spellcheck="false">{}</textarea>
+              <div class="form-grid"><div><label for="init-deposit">Attached deposit (NEAR)</label><input id="init-deposit" value="0"/></div><div class="field-spacer"><div class="mini-note">Initialization runs after deployment in the same transaction, when supplied.</div></div></div>
+            </div>
+          </div>
+        </div>
+        <div class="panel action-panel">
+          <div class="panel-title"><div><span class="step-index">04</span><b>Preflight & transaction review</b></div><span id="preflight-status" class="status-dot neutral">NOT CHECKED</span></div>
+          <div class="action-split"><div><p class="field-info">Inspect target existence, available balance, contract hash and signer permissions before authorizing a real Testnet transaction.</p><button id="preflight" class="button button-mint button-large">Run Preflight Check <span>↗</span></button></div><div class="review-box" id="preflight-output">Your transaction preview will appear here. Nothing is submitted until you approve the native Windows dialog.</div></div>
+          <div class="confirm-grid">
+            <div><label for="confirmation">Confirm full target account address</label><input id="confirmation" placeholder="Type the exact target after preflight" autocomplete="off" spellcheck="false"/></div>
+            <div class="confirm-right"><label class="checkbox-row"><input id="ack" type="checkbox"/> I have reviewed the target, actions, code and risks.</label><button id="deploy" class="button button-glow button-large" disabled>Deploy Contract <span>↗</span></button></div>
+          </div>
+          <div class="deploy-hint" id="deploy-hint">Run preflight before deploying.</div>
+          <div class="result-box" id="deployment-result" role="status" aria-live="polite">No deployment transaction submitted in this session.</div>
+        </div>
+      </section>
+
+      <section class="workspace-view" id="view-library" hidden>
+        <div class="view-top"><span class="view-kicker">YOUR COLLECTION / LOCAL</span><h3>My Contract Library</h3><p>Keep your deployed or work-in-progress contract artifacts and preferred settings in one compact place.</p></div>
+        <div class="panel"><div class="panel-title"><div><span class="step-index">▤</span><b>Saved contracts</b></div><span class="panel-help" id="library-count">0 SAVED</span></div>
+          <label for="saved-select">Choose a saved contract</label><select id="saved-select"><option value="">Select a contract…</option></select>
+          <div id="saved-detail" class="artifact-summary"><div class="file-icon">W</div><div><b>No saved contract selected</b><span>Contracts saved here include a local WASM copy and deployment preset.</span></div></div>
+          <div class="buttons"><button id="saved-load" class="button button-mint">Load to Studio</button><button id="saved-delete" class="button button-outline">Remove from Library</button><button id="saved-refresh" class="button button-quiet">Refresh</button></div>
+          <p class="field-info" id="library-remove-warning">Removing an entry requires a second click and never deletes blockchain contracts.</p>
+        </div>
+        <div class="panel"><div class="panel-title"><div><span class="step-index">＋</span><b>Save current contract</b></div></div>
+          <label for="save-name">Contract display name</label><input id="save-name" maxlength="70" placeholder="e.g. My NFT Collection"/>
+          <p class="field-info">The imported WASM and current deployment settings are copied into a local library under your Windows user profile. Private keys are never stored.</p>
+          <button id="save-current" class="button button-mint">Save Current Contract <span>＋</span></button>
+        </div>
+        <div class="library-aside">✧ <b>Built for repeat deployments.</b> Save a WASM artifact once. Load it later with its initializer, funding and account settings already filled in.</div>
+      </section>
+
+      <section class="workspace-view" id="view-verify" hidden>
+        <div class="view-top"><span class="view-kicker">ON-CHAIN / READ-ONLY</span><h3>Verify your deployment</h3><p>Inspect any named NEAR testnet account. Compare its deployed code against the currently selected WASM.</p></div>
+        <div class="panel"><div class="panel-title"><div><span class="step-index">◎</span><b>Account inspector</b></div><span class="status-dot live">READ ONLY</span></div>
+          <label for="verify-address">Contract address</label><input id="verify-address" placeholder="contract.youraccount.testnet" spellcheck="false"/>
+          <button id="verify-button" class="button button-mint">Inspect on NEAR Testnet <span>◎</span></button>
+          <div class="review-box spacious" id="verify-output">Enter the address of a deployed contract to check its code hash, access keys, balance, and whether it matches your imported WASM.</div>
+        </div>
+      </section>
+
+      <section class="workspace-view" id="view-build" hidden>
+        <div class="view-top"><span class="view-kicker">ARTIFACTS / TOOLCHAIN</span><h3>Compile & import</h3><p>Bring your contracts to the Forge. The bytecode, not the programming language, is what NEAR ultimately deploys.</p></div>
+        <div class="feature-grid build-features">
+          <div class="feature"><div class="feature-icon mint">W</div><span>ALL COMPATIBLE CONTRACTS</span><h3>Import .WASM</h3><p>Use Rust, JavaScript, TypeScript or another NEAR-compatible toolchain to produce WebAssembly. Import the resulting contract file.</p><button id="wasm-import-build" class="button button-mint">Browse WASM Files</button></div>
+          <div class="feature"><div class="feature-icon purple">⌘</div><span>RUST PROJECTS</span><h3>Compile locally</h3><p>Run cargo-near on a trusted Rust project containing Cargo.toml. Requires Rust and cargo-near installed on Windows.</p><button id="rust-compile-build" class="button button-outline">Select Rust Project</button></div>
+        </div>
+        <div class="panel"><div class="panel-title"><div><span class="step-index">◇</span><b>Artifact details</b></div></div><div id="build-detail" class="review-box">No WASM loaded.</div></div>
+        <div class="soft-note code-warning">Building untrusted Rust projects can run native build scripts and dependencies on your computer. Only compile source code you trust. Forge does not audit contract security.</div>
+      </section>
+    </main>
+  </div>
+</div>
+<footer class="bottom-bar"><span>© NEARIUM ECOSYSTEM <span class="foot-sep">·</span> FORGE STUDIO</span><span>COMPILE. DEPLOY. VERIFY. <strong>✦</strong></span></footer>
+</div>
+<script src="./renderer.js"></script>
+</body></html>
