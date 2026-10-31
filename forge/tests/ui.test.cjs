@@ -29,3 +29,18 @@ test('CSP, local key input and dropdown library',()=>{
  assert.match(html,/<select id="saved-select"/);
  assert.match(js,/call\('save'/);
 });
+
+test('user-supplied Nearium Forge logo is used in header, landing hero, and app window',()=>{
+ const logoPath=path.join(__dirname,'../src/assets/nearium-forge-logo.png');
+ const raw=fs.readFileSync(logoPath);
+ assert.deepEqual([...raw.subarray(0,8)],[137,80,78,71,13,10,26,10]);
+ assert.equal(raw.readUInt32BE(16),600);
+ assert.equal(raw.readUInt32BE(20),561);
+ const digest=require('node:crypto').createHash('sha256').update(raw).digest('hex');
+ assert.equal(digest,'df98085d831134ccef55cb738e633cb29e5cf87b0f356b1fc3f637d384153187');
+ assert.match(html,/class="brand-logo" src="\.\/assets\/nearium-forge-logo\.png"/);
+ assert.match(html,/class="hero-logo" src="\.\/assets\/nearium-forge-logo\.png"/);
+ assert.doesNotMatch(html,/class="core-symbol"/);
+ const main=fs.readFileSync(path.join(__dirname,'../src/main.cjs'),'utf8');
+ assert.match(main,/icon:path\.join\(__dirname,'assets','nearium-forge-logo\.png'\)/);
+});

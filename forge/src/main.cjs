@@ -295,6 +295,7 @@ app.whenReady().then(async()=>{
  session.defaultSession.setPermissionRequestHandler((_web,permission,done)=>done(false));
  session.defaultSession.webRequest.onBeforeRequest({urls:['https://*/*','http://*/*']},(_request,done)=>done({cancel:true}));
  const win=new BrowserWindow({width:1190,height:880,minWidth:870,minHeight:680,backgroundColor:'#070e17',
+   icon:path.join(__dirname,'assets','nearium-forge-logo.png'),
    show:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),sandbox:true,
      contextIsolation:true,nodeIntegration:false,webSecurity:true}});
  win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
