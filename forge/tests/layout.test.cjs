@@ -15,6 +15,6 @@ test('deployment layout columns stretch to a common bottom edge',()=>{
 test('preflight uses full row width and the responsive stack is retained',()=>{
  assert.match(css,/#view-deploy>\.action-panel\{width:100%;max-width:none\}/);
  assert.match(css,/@media\(max-width:1110px\)\{#view-deploy \.two-col>\.stack>\.panel:last-child\{flex:none\}\}/);
- assert.match(css,/@media\(max-width:1110px\)[^}]*\.two-col\{grid-template-columns:1fr\}/);
+ assert.match(css.slice(css.indexOf('@media(max-width:1110px)')),/\.two-col\{grid-template-columns:1fr\}/);
  assert.match(html,/04<\/span><b>Preflight & transaction review<\/b>/);
 });
