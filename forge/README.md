@@ -9,7 +9,7 @@ Nearium Forge is a SEPARATE Windows 10/11 desktop application alongside the exis
 ## Download
 1. Open https://github.com/Punisher530/nearium-admin-deployer/actions/workflows/nearium-forge-windows.yml
 2. Select the latest successful build and download the Nearium-Forge-Windows-10-11 artifact under Artifacts.
-3. Extract the ZIP and run Nearium-Forge-Windows-0.1.1.exe.
+3. Extract the ZIP and run Nearium-Forge-Windows-0.1.2.exe.
 4. The portable EXE is UNSIGNED, and a SmartScreen warning may appear. Check the provided SHA256SUMS.txt and review the source and origin before running it.
 
 ## Features
