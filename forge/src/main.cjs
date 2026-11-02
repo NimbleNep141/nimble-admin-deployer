@@ -5,6 +5,8 @@ const path=require('node:path');
 const {randomUUID,createHash}=require('node:crypto');
 const {Library}=require('./library.cjs');
 const sourceEditor=require('./source-editor.cjs');
+// Metadata parser only. Native Windows Node/npm compiler IPC remains disabled.
+const jsToolchain=require('./js-toolchain.cjs');
 const isolatedBuilder=require('./isolated-builder.cjs');
 const {YOCTO,networkConfig,accountId,fmt,wasm,sha,plan,actionsFor,displayActions}=require('./core.cjs');
 const {verifyDeployment}=require('./deployment-verification.cjs');
