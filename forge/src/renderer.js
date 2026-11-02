@@ -119,36 +119,13 @@ async function importWasm(){
   if(!res.cancelled){artifactUpdate(res);notify('Verified WebAssembly file imported: '+res.name);}
  }catch(e){notify(e.message,true)}finally{busy(false)}
 }
-let compilerBusy=false;
-function compilerView(state){
- setText('rustup-state',state.rustup.installed?'Installed · '+state.rustup.detail:'Not installed');
- setText('rust-state',state.rust.installed?'Ready · '+state.rust.detail:'Not installed');
- setText('wasm-state',state.wasm.installed?'Installed':'Missing');
- setText('cargo-near-state',state.cargoNear.installed?'Ready · '+state.cargoNear.detail:'Not installed');
- el('compiler-ready').className='status-dot '+(state.ready?'live':'neutral');
- setText('compiler-ready',state.ready?'READY':'SETUP NEEDED');
-}
+// The Windows host compiler has been removed. Docker is required and no fallback exists.
 async function refreshCompiler(){
- if(compilerBusy)return;
- try{compilerView(await call('compilerStatus'));}
- catch(e){setText('compiler-ready','CHECK FAILED');setText('compiler-log',e.message);}
-}
-async function setupCompilerUI(){
- if(compilerBusy)return;
- compilerBusy=true;busy(true);
- el('compiler-check').disabled=true;el('compiler-install').disabled=true;
- setText('compiler-stage','INSTALLING');
- setText('compiler-log','Preparing official compiler components. A native Windows approval will appear.');
- try{
-  const result=await call('compilerSetup');
-  if(result.cancelled)setText('compiler-log','Installation cancelled. No tool installations were started.');
-  else{compilerView(result);setText('compiler-log','Compiler ready. Select a trusted Rust project to build its WASM.');notify('Compiler Manager setup completed.');}
- }catch(e){setText('compiler-log','Setup failed: '+e.message);notify('Compiler setup failed: '+e.message,true);}
- finally{
-  compilerBusy=false;busy(false);
-  el('compiler-check').disabled=false;el('compiler-install').disabled=false;
-  await refreshCompiler();
- }
+ await refreshIsolationStatus();
+ const label=el('isolation-status').textContent;
+ setText('compiler-ready',label);
+ el('compiler-ready').className=el('isolation-status').className;
+ setText('compiler-log','v0.7: Docker-only compilation. Rust/Cargo/Node tooling runs inside restricted Linux containers, never through a Windows project build.');
 }
 window.forge.onCompilerProgress(progress=>{
  if(!progress||typeof progress.message!=='string')return;
@@ -184,7 +161,7 @@ function fillProject(project){
  if(project.kind==='javascript'&&config){
   setText('js-dependency-state',config.hasModules?'node_modules present':'Not installed');
   setText('js-script-state',config.legacySdk?'near-sdk-js needs Linux/WSL':config.scripts.length?config.scripts.map(x=>x.name).join(', '):'No build script');
-  if(config.legacySdk)setText('js-log','This project depends on deprecated near-sdk-js, whose official compiler is not supported on native Windows. Build in an isolated WSL/Linux environment and import the WASM, or use a Rust contract instead.');
+  if(config.legacySdk)setText('js-log','This project depends on archived near-sdk-js. Docker Linux may support its build scripts, but production safety is not assured.');
   selectOptions(el('js-build-script'),config.scripts.length?config.scripts.map(x=>({value:x.name,label:x.name+' · '+x.command.slice(0,55)})):[{value:'',label:'No supported contract build script'}]);
  }else{
   setText('js-dependency-state','Open a JS/TS project');
@@ -231,41 +208,13 @@ async function discardSourceUI(){
  notify('Source code reloaded from the saved file.');
 }
 async function refreshNodeStatus(){
- try{
-  const state=await call('nodeStatus');
-  setText('node-state',state.ready?'Ready · '+state.version:'Missing · '+state.version);
-  setText('js-status',state.ready?'NODE READY':'NODE SETUP');
- }catch(e){
-  setText('node-state','Unavailable');
-  setText('js-status','NODE ERROR');
-  setText('js-log',e.message);
- }
+ const ready=await call('isolatedStatus').catch(()=>({ready:false,reason:'Docker Desktop check failed.'}));
+ setText('node-state',ready.ready?'Docker Node image · available on build':'Docker Desktop required');
+ setText('js-status',ready.ready?'ISOLATED BUILD':'DOCKER NEEDED');
+ setText('js-log',ready.ready?
+   'JS/TS dependencies and npm build scripts run in a restricted Docker Linux container. No native Node.js install required.':
+   'Docker-only security policy: '+ready.reason+' No Windows fallback is available.');
 }
-async function jsAction(action,label,arg=null){
- if(jsUIBusy)return;
- if(sourceDirty){notify('Save or discard source changes before running JavaScript project tools.',true);return;}
- jsUIBusy=true;busy(true);
- for(const id of ['node-install','js-dependencies','js-compile'])el(id).disabled=true;
- setText('js-log',label+' ...');
- try{
-  const res=await call(action,arg);
-  if(res.cancelled){setText('js-log','Operation cancelled.');return;}
-  if(res.contract){
-   artifactUpdate(res.contract);
-   setText('js-log','Compiled and imported '+res.contract.name+' from the local JavaScript/TypeScript project.');
-   notify('JS/TS WASM compiled and imported. Review its hash before deployment.');
-  }else{
-   setText('js-log',(res.description||res.log||'Operation completed.').slice(-1400));
-   notify(label+' completed.');
-  }
-  await refreshNodeStatus();
- }catch(e){setText('js-log',e.message);notify(label+' failed: '+e.message,true);}
- finally{
-  jsUIBusy=false;busy(false);
-  for(const id of ['node-install','js-dependencies','js-compile'])el(id).disabled=false;
- }
-}
-
 async function refreshIsolationStatus(){
  try{
   const state=await call('isolatedStatus');
@@ -275,9 +224,9 @@ async function refreshIsolationStatus(){
  }catch(e){setText('isolation-status','CHECK FAILED');setText('isolated-log',e.message);}
 }
 async function runIsolatedBuild(){
- if(!sourceProject){notify('Open a local source project first.',true);return;}
+ if(!sourceProject){notify('Open a local Rust or JS/TS project first. Docker-only compilation has no Windows fallback.',true);return;}
  if(sourceDirty){notify('Save or discard source changes before building.',true);return;}
- busy(true);setText('isolated-log','Preparing restricted Docker build. Windows approval will appear.');
+ busy(true);setText('isolated-log','Checking Docker Desktop and preparing restricted container build. Never use native fallback.');
  try{
   const result=await call('isolatedBuild',{script:el('js-build-script').value});
   if(result.cancelled){setText('isolated-log','Isolated build cancelled. No artifact was imported.');return;}
@@ -302,12 +251,15 @@ function startUpgradeReview(){
  notify('Review the target account, compare the old on-chain code hash with the selected WASM, check upgrade acknowledgments, and run preflight. No transaction has been sent.');
 }
 async function compileRust(){
- if(sourceDirty){notify('Save or discard source changes before compiling Rust. The unsaved editor buffer is not part of a build.',true);return;}
- busy(true);notify('Choose a trusted Rust project. Cargo build scripts can run code on your PC. Never compile unknown projects.');
- try{
-  const res=await call('compileRust');
-  if(!res.cancelled){artifactUpdate(res.contract);notify('Rust contract compiled and imported.\n'+res.log.slice(-950));}
- }catch(e){notify('Compile failed: '+e.message,true)}finally{busy(false)}
+ if(sourceDirty){notify('Save or discard source changes before building.',true);return;}
+ if(!sourceProject||sourceProject.kind!=='rust'){
+  await openProjectUI();
+  if(!sourceProject||sourceProject.kind!=='rust'){
+   notify('Select a Rust project containing Cargo.toml. Windows compilation is disabled.',true);
+   return;
+  }
+ }
+ await runIsolatedBuild();
 }
 async function connectKey(useFile=false){
  const owner=el('owner').value.trim(),secret=el('secret').value;
@@ -551,13 +503,11 @@ for(const id of ['wasm-import','wasm-import-build'])wire(id,importWasm);
 for(const id of ['rust-compile','rust-compile-build'])wire(id,compileRust);
 wire('toggle-secret',()=>{el('secret').type=el('secret').type==='password'?'text':'password'});
 wire('key-connect',()=>connectKey(false));wire('key-file',()=>connectKey(true));wire('key-disconnect',disconnectKey);
-wire('compiler-check',refreshCompiler);wire('compiler-install',setupCompilerUI);
+wire('compiler-check',refreshCompiler);
 wire('isolated-check',refreshIsolationStatus);wire('isolated-build',runIsolatedBuild);wire('upgrade-start',startUpgradeReview);
 wire('upgrade-inspect',inspectMainnetUpgrade);wire('upgrade-prepare',prepareMainnetUpgrade);
 wire('node-check',refreshNodeStatus);
-wire('node-install',()=>jsAction('nodeSetup','Managed Node.js installation'));
-wire('js-dependencies',()=>jsAction('jsInstall','Project dependency setup'));
-wire('js-compile',()=>jsAction('jsBuild','JS/TS compilation',{script:el('js-build-script').value}));
+wire('js-compile',async()=>{if(!sourceProject||sourceProject.kind!=='javascript'){notify('Open a JavaScript / TypeScript project first.',true);return;}await runIsolatedBuild();});
 wire('source-project',openProjectUI);wire('source-save',saveSourceUI);wire('source-reload',discardSourceUI);
 el('source-file').addEventListener('change',()=>openSourceFile(el('source-file').value));
 el('source-code').addEventListener('input',()=>setSourceDirty(Boolean(sourceFile&&el('source-code').value!==sourceFile.text)));
