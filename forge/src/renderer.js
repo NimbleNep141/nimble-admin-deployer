@@ -32,7 +32,7 @@ function showView(next){
  document.querySelectorAll('.nav-link').forEach(n=>n.classList.toggle('selected',n.dataset.view===next));
  setText('workspace-title',names[next]);setText('workspace-desc',descriptions[next]);setText('crumb-page',next.toUpperCase());
  if(next==='library')refreshLibrary();
- if(next==='build'){refreshCompiler();refreshNodeStatus();refreshIsolationStatus();}
+ if(next==='build'){refreshCompiler();refreshNodeStatus();refreshIsolationStatus();refreshReproducibleStatus();}
  if(next==='verify'&&!el('verify-address').value.trim())el('verify-address').value=targetId();
 }
 function targetId(){
@@ -93,7 +93,7 @@ function updateDeploy(){
 }
 function busy(value){
  working=value;
- for(const id of ['wasm-import','rust-compile','wasm-import-build','rust-compile-build','key-connect','key-file','key-disconnect','preflight','save-current','saved-load','saved-delete','saved-refresh','saved-verify','verify-button','deploy','isolated-build','isolated-check','upgrade-start','network-select','upgrade-inspect','upgrade-prepare'])el(id).disabled=value;
+ for(const id of ['wasm-import','rust-compile','wasm-import-build','rust-compile-build','key-connect','key-file','key-disconnect','preflight','save-current','saved-load','saved-delete','saved-refresh','saved-verify','verify-button','deploy','isolated-build','isolated-check','reproducible-check','reproducible-install','upgrade-start','network-select','upgrade-inspect','upgrade-prepare'])el(id).disabled=value;
  if(!value){el('upgrade-start').disabled=!artifact||sourceDirty;updateDeploy();}
 }
 function artifactUpdate(meta){
@@ -101,7 +101,7 @@ function artifactUpdate(meta){
  if(meta){
   setText('artifact-status','WASM VERIFIED');el('artifact-status').className='status-dot live';
   setText('mini-wasm',meta.name);setText('artifact-detail',meta.name+' · '+meta.bytes.toLocaleString('en-US')+' bytes\nSHA-256 '+meta.hash);
-  setText('build-detail','Name: '+meta.name+'\nSize: '+meta.bytes.toLocaleString('en-US')+' bytes\nSHA-256: '+meta.hash+'\nSource: '+meta.source+'\nBUILD MODE: '+(meta.provenance?.mode||'imported / unverified')+'\nSOURCE FINGERPRINT: '+(meta.provenance?.sourceSha256||'not recorded'));
+  setText('build-detail','Name: '+meta.name+'\nSize: '+meta.bytes.toLocaleString('en-US')+' bytes\nSHA-256: '+meta.hash+'\nSource: '+meta.source+'\nBUILD MODE: '+(meta.provenance?.mode||'imported / unverified')+'\nSOURCE FINGERPRINT: '+(meta.provenance?.sourceSha256||'not recorded')+'\nGIT COMMIT: '+(meta.provenance?.gitCommit||'development / imported'));
   if(!el('save-name').value.trim())el('save-name').value=meta.name.replace(/\.wasm$/i,'');
  }else{
   setText('mini-wasm','None selected');
@@ -125,14 +125,15 @@ async function refreshCompiler(){
  const label=el('isolation-status').textContent;
  setText('compiler-ready',label);
  el('compiler-ready').className=el('isolation-status').className;
- setText('compiler-log','v0.7: Docker-only compilation. Rust/Cargo/Node tooling runs inside restricted Linux containers, never through a Windows project build.');
+ setText('compiler-log','NEAR cargo-near development and production build modes both compile contracts in Docker. No Windows project compilation fallback.');
 }
 window.forge.onCompilerProgress(progress=>{
  if(!progress||typeof progress.message!=='string')return;
  setText('compiler-stage',String(progress.stage||'RUNNING').toUpperCase());
  setText('compiler-log',progress.message);
  if(progress.stage==='node'||progress.stage==='javascript')setText('js-log',progress.message);
- if(progress.stage==='isolated')setText('isolated-log',progress.message);
+ if(progress.stage==='isolated'||progress.stage==='reproducible')setText('isolated-log',progress.message);
+ if(['reproducible','cargo-near','rustup','rust'].includes(progress.stage))setText('reproducible-log',progress.message);
 });
 
 let sourceProject=null,sourceFile=null,sourceDirty=false,jsUIBusy=false;
@@ -153,6 +154,8 @@ function selectOptions(select,items){
 }
 function fillProject(project){
  sourceProject=project;sourceFile=null;artifactUpdate(null);setSourceDirty(false);
+ el('rust-build-mode').disabled=project.kind!=='rust';
+ if(project.kind!=='rust')el('rust-build-mode').value='development';
  el('source-code').value='';el('source-code').disabled=true;
  setText('source-project-path',project.root+' · '+(project.kind==='rust'?'RUST':'JAVASCRIPT / TYPESCRIPT'));
  selectOptions(el('source-file'),project.files.map(f=>({value:f,label:f})));
@@ -223,12 +226,32 @@ async function refreshIsolationStatus(){
   setText('isolated-log',state.reason);
  }catch(e){setText('isolation-status','CHECK FAILED');setText('isolated-log',e.message);}
 }
+async function refreshReproducibleStatus(){
+ try{
+  const state=await call('reproducibleStatus');
+  setText('reproducible-log',state.reason);
+  el('reproducible-check').textContent=state.ready?'Official cargo-near Ready · Check Again':'Check Official cargo-near';
+ }catch(e){setText('reproducible-log','Production toolchain check failed: '+e.message);}
+}
+async function setupReproducibleUI(){
+ if(working)return;
+ busy(true);
+ setText('reproducible-log','Requesting Windows approval for verified official Rust/cargo-near build orchestration tools...');
+ try{
+  const result=await call('reproducibleSetup');
+  if(result.cancelled){setText('reproducible-log','Production toolchain installation cancelled.');return;}
+  setText('reproducible-log','Official cargo-near production tools installed. Your Git repository and Cargo.toml must be ready for reproducible-wasm.');
+  notify('Verified official cargo-near build orchestrator is ready. Builds continue inside Docker.');
+ }catch(e){setText('reproducible-log',e.message);notify('Production tooling installation failed: '+e.message,true);}
+ finally{busy(false);await refreshReproducibleStatus();}
+}
 async function runIsolatedBuild(){
  if(!sourceProject){notify('Open a local Rust or JS/TS project first. Docker-only compilation has no Windows fallback.',true);return;}
  if(sourceDirty){notify('Save or discard source changes before building.',true);return;}
  busy(true);setText('isolated-log','Checking Docker Desktop and preparing restricted container build. Never use native fallback.');
  try{
-  const result=await call('isolatedBuild',{script:el('js-build-script').value});
+  const result=await call('isolatedBuild',{script:el('js-build-script').value,
+   buildMode:sourceProject.kind==='rust'?el('rust-build-mode').value:'development'});
   if(result.cancelled){setText('isolated-log','Isolated build cancelled. No artifact was imported.');return;}
   if(result.contract){
    artifactUpdate(result.contract);
@@ -504,7 +527,8 @@ for(const id of ['rust-compile','rust-compile-build'])wire(id,compileRust);
 wire('toggle-secret',()=>{el('secret').type=el('secret').type==='password'?'text':'password'});
 wire('key-connect',()=>connectKey(false));wire('key-file',()=>connectKey(true));wire('key-disconnect',disconnectKey);
 wire('compiler-check',refreshCompiler);
-wire('isolated-check',refreshIsolationStatus);wire('isolated-build',runIsolatedBuild);wire('upgrade-start',startUpgradeReview);
+wire('isolated-check',refreshIsolationStatus);wire('isolated-build',runIsolatedBuild);
+ wire('reproducible-check',refreshReproducibleStatus);wire('reproducible-install',setupReproducibleUI);wire('upgrade-start',startUpgradeReview);
 wire('upgrade-inspect',inspectMainnetUpgrade);wire('upgrade-prepare',prepareMainnetUpgrade);
 wire('node-check',refreshNodeStatus);
 wire('js-compile',async()=>{if(!sourceProject||sourceProject.kind!=='javascript'){notify('Open a JavaScript / TypeScript project first.',true);return;}await runIsolatedBuild();});
