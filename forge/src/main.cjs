@@ -501,6 +501,7 @@ async function deploy(data,event){
    expectedCodeHash:expected
   });
   if(transactionLookupError)review.reasons.unshift(transactionLookupError);
+  if(tx?.status?.Failure)review.reasons.push('The original signed transaction response reported an execution failure.');
   if(accountResult.status==='rejected')review.reasons.push('On-chain account lookup failed: '+safeError(accountResult.reason));
   if(keyResult.status==='rejected')review.reasons.push('On-chain access-key lookup failed: '+safeError(keyResult.reason));
   const verified=review.verified&&review.reasons.length===0;
