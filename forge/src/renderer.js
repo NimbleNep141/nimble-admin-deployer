@@ -244,6 +244,7 @@ async function jsAction(action,label,arg=null){
 }
 
 async function compileRust(){
+ if(sourceDirty){notify('Save or discard source changes before compiling Rust. The unsaved editor buffer is not part of a build.',true);return;}
  busy(true);notify('Choose a trusted Rust project. Cargo build scripts can run code on your PC. Never compile unknown projects.');
  try{
   const res=await call('compileRust');
