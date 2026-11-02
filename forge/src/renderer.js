@@ -95,7 +95,7 @@ function updateDeploy(){
 function busy(value){
  working=value;
  for(const id of ['wasm-import','rust-compile','wasm-import-build','rust-compile-build','key-connect','key-file','key-disconnect','preflight','save-current','saved-load','saved-delete','saved-refresh','saved-verify','verify-button','deploy','isolated-build','isolated-check','reproducible-check','reproducible-install','upgrade-start','network-select','upgrade-inspect','upgrade-prepare','recovery-refresh','recovery-check','recovery-attach','recovery-release'])el(id).disabled=value;
- if(!value){el('upgrade-start').disabled=!artifact||sourceDirty;updateDeploy();}
+ if(!value){el('upgrade-start').disabled=!artifact||sourceDirty;updateDeploy();updateRecovery();}
 }
 function artifactUpdate(meta){
  artifact=meta;lastDeployment=null;
