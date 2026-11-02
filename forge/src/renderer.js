@@ -161,7 +161,8 @@ function fillProject(project){
  const config=project.config;
  if(project.kind==='javascript'&&config){
   setText('js-dependency-state',config.hasModules?'node_modules present':'Not installed');
-  setText('js-script-state',config.scripts.length?config.scripts.map(x=>x.name).join(', '):'No build script');
+  setText('js-script-state',config.legacySdk?'near-sdk-js needs Linux/WSL':config.scripts.length?config.scripts.map(x=>x.name).join(', '):'No build script');
+  if(config.legacySdk)setText('js-log','This project depends on deprecated near-sdk-js, whose official compiler is not supported on native Windows. Build in an isolated WSL/Linux environment and import the WASM, or use a Rust contract instead.');
   selectOptions(el('js-build-script'),config.scripts.length?config.scripts.map(x=>({value:x.name,label:x.name+' · '+x.command.slice(0,55)})):[{value:'',label:'No supported contract build script'}]);
  }else{
   setText('js-dependency-state','Open a JS/TS project');
