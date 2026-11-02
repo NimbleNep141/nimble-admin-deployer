@@ -381,7 +381,7 @@ async function refreshLibrary(){
 }
 function savedUpdate(){
  const entry=saved.find(x=>x.id===el('saved-select').value);
- if(entry)setText('saved-detail',entry.name+'\nSHA-256 '+entry.sha256+'\n'+entry.bytes+' bytes · Added '+entry.created+(entry.deployment?'\nDeployed: '+entry.deployment.address+'\nTransaction: '+(entry.deployment.txHash||'not recorded'):''));
+ if(entry)setText('saved-detail',entry.name+'\nSHA-256 '+entry.sha256+'\n'+entry.bytes+' bytes · '+(entry.preset?.network||'testnet').toUpperCase()+' · Added '+entry.created+(entry.deployment?'\nDeployed: '+entry.deployment.address+'\nTransaction: '+(entry.deployment.txHash||'not recorded'):''));
  else setText('saved-detail','Select a saved contract to view its WASM hash and deployment preset.');
  el('saved-load').disabled=!entry;el('saved-delete').disabled=!entry;el('saved-verify').disabled=!entry?.deployment?.address;
  deletePending=null;setText('saved-delete','Remove from Library');
@@ -395,6 +395,7 @@ async function saveCurrent(){
  }catch(e){notify('Save failed: '+e.message,true)}finally{busy(false)}
 }
 function usePreset(p){
+ if((p.network||'testnet')!==selectedNetwork){notify('Saved preset uses '+(p.network||'testnet')+'. Switch to that network first.',true);return false;}
  const values={mode:p.mode||'new',prefix:p.prefix||'contract',funding:p.funding||'6',
   'key-mode':p.keyMode||'controlled','init-method':p.initMethod||'','init-args':p.initArgs||'{}',
   gas:p.gas||'30','init-deposit':p.initDeposit||'0'};
@@ -406,7 +407,7 @@ function usePreset(p){
 async function loadSaved(){
  const id=el('saved-select').value;if(!id)return;busy(true);
  try{
-  const x=await call('load',id);artifactUpdate(x.contract);usePreset(x.entry.preset);
+  const x=await call('load',id);artifactUpdate(x.contract);if(usePreset(x.entry.preset)===false){el('owner').value='';showView('deploy');return;}
   el('save-name').value=x.entry.name;showView('deploy');notify('Loaded '+x.entry.name+' with saved deployment settings. Run preflight before deployment.');
  }catch(e){notify('Cannot load saved contract: '+e.message,true)}finally{busy(false)}
 }
@@ -419,12 +420,12 @@ async function deleteSaved(){
 }
 async function verify(){
  const id=el('verify-address').value.trim();
- busy(true);setText('verify-output','Inspecting account directly on NEAR Testnet…');
+ busy(true);setText('verify-output','Inspecting account directly on NEAR '+selectedNetwork+'…');
  try{
   const o=await call('inspect',id);
-  const message=!o.exists?'Account does not exist on NEAR Testnet: '+o.account:
+  const message=!o.exists?'Account does not exist on NEAR '+o.network+': '+o.account:
     'CONTRACT ADDRESS      '+o.account+
-    '\nNETWORK               NEAR Testnet'+
+    '\nNETWORK               NEAR '+o.network.toUpperCase()+
     '\nCODE HASH             '+o.codeHash+
     '\nACCESS KEYS           '+o.keys+
     '\nACCOUNT BALANCE       '+o.balance+' NEAR'+
@@ -453,8 +454,10 @@ el('source-file').addEventListener('change',()=>openSourceFile(el('source-file')
 el('source-code').addEventListener('input',()=>setSourceDirty(Boolean(sourceFile&&el('source-code').value!==sourceFile.text)));
 wire('preflight',doPreflight);wire('deploy',doDeploy);wire('save-current',saveCurrent);
 wire('saved-load',loadSaved);wire('saved-delete',deleteSaved);wire('saved-refresh',refreshLibrary);wire('verify-button',verify);
+ el('network-select').addEventListener('change',changeNetwork);
 wire('saved-verify',()=>{const entry=saved.find(x=>x.id===el('saved-select').value);if(!entry?.deployment?.address)return;
- el('verify-address').value=entry.deployment.address;showView('verify');verify();});
+ if((entry.deployment.network||'testnet')!==selectedNetwork){notify('Saved deployment is on '+(entry.deployment.network||'testnet')+'. Switch networks before verifying.',true);return;}
+  el('verify-address').value=entry.deployment.address;showView('verify');verify();});
 el('saved-select').addEventListener('change',savedUpdate);
 const inputs=['owner','mode','prefix','funding','key-mode','replace-code','init-method','init-args','gas','init-deposit'];
 for(const id of inputs){
@@ -465,7 +468,7 @@ for(const id of inputs){
   invalidate();
  });
 }
-for(const id of ['confirmation','ack','upgrade-ack']){
+for(const id of ['confirmation','ack','upgrade-ack','mainnet-ack','mainnet-word']){
  for(const event of ['input','change'])el(id).addEventListener(event,updateDeploy);
 }
 async function initialize(){
