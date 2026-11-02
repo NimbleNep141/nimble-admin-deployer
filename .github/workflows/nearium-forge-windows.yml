@@ -28,6 +28,8 @@ jobs:
         run: npm run check
       - name: Run Forge safety and library tests
         run: npm test
+      - name: Verify live read-only Mainnet and Testnet RPC chain IDs
+        run: node tests/live-network-smoke.cjs
       - name: Package portable Windows application
         run: npm run dist
         env:
