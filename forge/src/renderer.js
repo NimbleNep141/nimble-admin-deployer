@@ -303,7 +303,7 @@ async function connectKey(useFile=false){
   localSigner=res;
   setText('signer-status','KEY READY');el('signer-status').className='status-dot live';
   setText('mini-signer',res.owner);
-  setText('signer-detail','Verified on-chain FullAccess testnet key · '+res.publicKey+'\nBalance: '+(res.balance||'check preflight')+' Ⓝ · This key is kept in session memory only.');
+  setText('signer-detail','Verified on-chain FullAccess '+selectedNetwork+' key · '+res.publicKey+'\nBalance: '+(res.balance||'check preflight')+' Ⓝ · This key is kept in session memory only.');
   notify('Local signer connected. No credentials are saved in the Forge library.');
   invalidate();
  }catch(e){notify('Could not connect signer: '+e.message,true)}
@@ -321,7 +321,7 @@ async function doPreflight(){
  try{
   const report=await call('preflight',config());review=report;
   const txt=[
-    'NETWORK                 NEAR Testnet',
+    'NETWORK                 NEAR '+report.network.toUpperCase(),
     'TARGET                  '+report.target,
     'OWNER                   '+report.owner,
     'WASM                    '+report.artifact.name+' ('+report.artifact.bytes+' bytes)',
@@ -348,14 +348,14 @@ async function doPreflight(){
 async function doDeploy(){
  if(!review){setResult('Run Preflight first.','error');return;}
  if(!el('ack').checked||el('confirmation').value.trim()!==review.target){setResult('Type the exact account address and acknowledge the risks.','error');return;}
- if(submittedTarget===review.target){setResult('This target already had a deployment attempt in this session. Verify blockchain receipts before retrying.','error');return;}
+ if(submittedTarget===selectedNetwork+':'+review.target){setResult('This target already had a deployment attempt in this session. Verify blockchain receipts before retrying.','error');return;}
  busy(true);
  setResult('Opening native Windows confirmation. Nothing is signed or sent until you choose Deploy Contract.');
  try{
-  const report=await call('deploy',{config:config(),token:review.token,confirm:el('confirmation').value.trim(),ack:true,ackMigration:el('upgrade-ack').checked});
+  const report=await call('deploy',{config:config(),token:review.token,confirm:el('confirmation').value.trim(),ack:true,ackMigration:el('upgrade-ack').checked,ackMainnet:el('mainnet-ack').checked,confirmNetwork:el('mainnet-word').value.trim()});
   if(report.cancelled){setResult('Cancelled by user. No transaction was submitted.');notify('Deployment cancelled.');return;}
-  submittedTarget=report.target;
-  lastDeployment={address:report.target,txHash:report.txHash,verified:report.verified};
+  submittedTarget=report.network+':'+report.target;
+  lastDeployment={network:report.network,address:report.target,txHash:report.txHash,verified:report.verified};
   setResult('TARGET          '+report.target+
     '\nTX HASH         '+(report.txHash||'unavailable')+
     '\nSTATUS          '+(report.verified?'DEPLOYED · CODE HASH VERIFIED':'NEEDS INVESTIGATION')+
@@ -365,8 +365,8 @@ async function doDeploy(){
     '\n'+report.warning,report.verified?'good':'error');
   setText('verify-address',report.target);
   notify(report.verified?'Contract deployed. On-chain WASM hash verified.':'A transaction was attempted but not fully verified. Inspect receipts and do not retry.',!report.verified);
- }catch(e){setResult('DEPLOYMENT DID NOT CONFIRM\n'+e.message+'\nNever retry without verifying account and receipts on NEAR Testnet.','error');notify(e.message,true)}
- finally{review=null;el('ack').checked=false;el('upgrade-ack').checked=false;display('upgrade-ack-row',false);el('confirmation').value='';busy(false);updateDeploy()}
+ }catch(e){setResult('DEPLOYMENT DID NOT CONFIRM\n'+e.message+'\nNever retry without verifying account and receipts on NEAR '+selectedNetwork+'.','error');notify(e.message,true)}
+ finally{review=null;el('ack').checked=false;el('upgrade-ack').checked=false;display('upgrade-ack-row',false);el('confirmation').value='';el('mainnet-ack').checked=false;el('mainnet-word').value='';busy(false);updateDeploy()}
 }
 async function refreshLibrary(){
  try{
