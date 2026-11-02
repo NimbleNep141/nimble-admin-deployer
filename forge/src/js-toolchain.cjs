@@ -9,6 +9,7 @@ const VERSION='v22.21.0';
 const DIST='node-'+VERSION+'-win-x64';
 const BASE='https://nodejs.org/dist/'+VERSION+'/';
 const ARCHIVE=DIST+'.zip';
+const PINNED_SHA256='84d31df6571c3c7156707265bf51e2a021656fa1584bf6f4486b792dcde54d7d';
 const BLOCKED_ENV=/^(NEAR_PRIVATE_KEY|NEAR_SECRET_KEY|NEAR_SEED_PHRASE|NEAR_WALLET_SEED|AWS_SECRET_ACCESS_KEY|GITHUB_TOKEN)$/i;
 function assertWindows(){if(process.platform!=='win32'||process.arch!=='x64')throw Error('Managed Node compiler is Windows x64 only.');}
 function root(userData){return path.join(userData,'compiler',DIST);}
@@ -63,6 +64,7 @@ async function install(userData,onProgress=()=>{}){
   report('node','Checking the official Node.js SHA-256 manifest.');
   const list=(await download(BASE+'SHASUMS256.txt',100000)).toString('utf8');
   const expected=manifestDigest(list);
+  if(expected!==PINNED_SHA256)throw Error('The official Node.js checksum manifest does not match the release-pinned SHA-256. Installation cancelled.');
   report('node','Downloading the official Windows x64 Node.js runtime.');
   let last=0;
   const zip=await download(BASE+ARCHIVE,100_000_000,(n,total)=>{
@@ -140,5 +142,5 @@ async function wasmFiles(project){
  await walk(project.root,0);
  return files.sort((a,b)=>b.mtime-a.mtime);
 }
-module.exports={VERSION,DIST,ARCHIVE,BASE,manifestDigest,status,install,environment,projectInfo,
+module.exports={VERSION,DIST,ARCHIVE,BASE,PINNED_SHA256,manifestDigest,status,install,environment,projectInfo,
  installDependencies,build,wasmFiles,root,binary,npmCli};
