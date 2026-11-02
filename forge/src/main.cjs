@@ -431,7 +431,7 @@ async function preflight(data){
 async function upgradeContext(data){
  if(working)throw Error('Finish the current operation before inspecting a Mainnet upgrade.');
  if(activeNetwork!=='mainnet')throw Error('Upgrade compatibility review is exclusive to Mainnet.');
- const details=await preflight(data);
+ const details=await preflight({...data,replace:true});
  if(!details.upgrade||details.p.mode!=='existing')throw Error('Select an existing Mainnet contract that already has deployed code.');
  if(details.onchainHash===details.existingCodeHash)throw Error('The selected WASM is already installed; no upgrade is required.');
  return {network:'mainnet',target:details.p.target,oldCodeHash:details.existingCodeHash,
@@ -448,6 +448,8 @@ async function prepareUpgrade(data){
   if(details.p.mode!=='existing'||!details.upgrade||!details.existingCodeHash||details.existingCodeHash===EMPTY_CODE)
    throw Error('Upgrade review requires an existing Mainnet contract with deployed code.');
   if(details.onchainHash===details.existingCodeHash)throw Error('No code change detected. Select a different WASM.');
+  if(JSON.stringify(config.upgradeEvidence)!==JSON.stringify(data.evidence))
+   throw Error('Compatibility report changed between the form and signed deployment configuration.');
   const parsed=upgradeSafety.validateEvidence(data.evidence,{
    target:details.p.target,oldCodeHash:details.existingCodeHash,
    newSha:details.p.wasmHash,initMethod:details.p.init.method,
