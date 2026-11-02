@@ -4,6 +4,7 @@ const {readFile,stat,rm}=require('node:fs/promises');
 const path=require('node:path');
 const {randomUUID,createHash}=require('node:crypto');
 const {Library}=require('./library.cjs');
+const {DeploymentJournal,TX}=require('./deployment-journal.cjs');
 const sourceEditor=require('./source-editor.cjs');
 // Metadata parser only. Native Windows Node/npm compiler IPC remains disabled.
 const jsToolchain=require('./js-toolchain.cjs');
@@ -15,10 +16,9 @@ const {verifyDeployment}=require('./deployment-verification.cjs');
 const upgradeSafety=require('./upgrade-safety.cjs');
 
 let activeNetwork='testnet',switchingNetwork=false,networkOperations=0;
-const networkOperationNames=new Set(['network','inspect','import-key','key-file','preflight','deploy','upgrade-context','upgrade-prepare']);
+const networkOperationNames=new Set(['network','inspect','import-key','key-file','preflight','deploy','upgrade-context','upgrade-prepare','recovery-reconcile','recovery-attach','recovery-release']);
 const EMPTY_CODE='11111111111111111111111111111111';
-let current=null,signer=null,previewRecord=null,upgradeReview=null,working=false,library=null,compilerSetupBusy=false,compilerBuildBusy=false,jsSetupBusy=false,jsBuildBusy=false,isolateBusy=false,editorProject=null,editorLoaded=null;
-const attemptedTargets=new Set();
+let current=null,signer=null,previewRecord=null,upgradeReview=null,working=false,library=null,journal=null,compilerSetupBusy=false,compilerBuildBusy=false,jsSetupBusy=false,jsBuildBusy=false,isolateBusy=false,editorProject=null,editorLoaded=null;
 function invalidate(){previewRecord=null;upgradeReview=null;}
 const result=(code,data)=>({ok:true,data});
 function safeError(e){
@@ -307,6 +307,7 @@ async function preflight(data){
  if(!owner)throw Error('Signer account is missing on NEAR '+activeNetwork+'.');
  const auth=await rpc('query',{request_type:'view_access_key',finality:'final',account_id:p.signer,public_key:signer.publicKey.toString()});
  if(auth.permission!=='FullAccess')throw Error('The connected key no longer has full access.');
+ await journal.assertClear(activeNetwork,p.target);
  const {baseEncode}=await api();
  const onchainHash=baseEncode(createHash('sha256').update(current.bytes).digest());
  if(p.mode==='new'&&target)throw Error('Target child account already exists. Cannot overwrite through CreateAccount.');
@@ -433,7 +434,7 @@ async function deploy(data,event){
   if(data.confirm!==p.target)throw Error('Type the exact contract address to approve.');
   if(p.target!==previewRecord.target||signer.owner!==previewRecord.owner||current.hash!==previewRecord.hash||previewRecord.network!==activeNetwork||signer.network!==activeNetwork)
     throw Error('Signer, contract or target changed. Re-run Preflight.');
-  if(attemptedTargets.has(activeNetwork+':'+p.target))throw Error('This target has a prior deployment attempt on this network this session. Inspect receipts before retrying.');
+  await journal.assertClear(activeNetwork,p.target);
   const parent=BrowserWindow.fromWebContents(event.sender);
   if(!parent)throw Error('Cannot display native Windows confirmation.');
   const mainnet=activeNetwork==='mainnet';
@@ -458,13 +459,16 @@ async function deploy(data,event){
   const approvedPublicKey=signer.publicKey.toString();
   const list=actionsFor(actions,current.bytes,p,signer.publicKey);
   previewRecord=null;
+  const entry=await journal.start({network:activeNetwork,target:p.target,signer:p.signer,
+   publicKey:approvedPublicKey,mode:p.mode,keyMode:p.keyMode,initMethod:p.init.method,
+   wasmSha256:p.wasmHash,expectedCodeHash:expected});
   attempted=true;
-  attemptedTargets.add(activeNetwork+':'+p.target);
   // No automatic retries. Do not resubmit if a post-send read or receipt check fails.
   const tx=await signer.account.signAndSendTransaction({
     receiverId:p.target,actions:list,retries:0,waitUntil:'FINAL',throwOnFailure:false
   });
   const txHash=tx?.transaction?.hash||tx?.transaction_outcome?.id||null;
+  if(txHash)await journal.rememberHash(entry,txHash);
   // Independently re-query the canonical transaction including all executed receipts.
   let finalized=null,transactionLookupError=null;
   if(!txHash)transactionLookupError='Submission did not return a transaction hash.';
@@ -489,6 +493,10 @@ async function deploy(data,event){
   if(accountResult.status==='rejected')review.reasons.push('On-chain account lookup failed: '+safeError(accountResult.reason));
   if(keyResult.status==='rejected')review.reasons.push('On-chain access-key lookup failed: '+safeError(keyResult.reason));
   const verified=review.verified&&review.reasons.length===0;
+  if(verified)await journal.complete(entry,'verified-success');
+  else if(finalized?.final_execution_status==='FINAL'&&finalized?.status?.Failure)
+   await journal.note(entry,'finalized-failure','Finalized transaction failed. Partial side effects require manual on-chain inspection.');
+  else await journal.note(entry,'finalized-unverified',review.reasons.join(' ').slice(0,750)||'Finality or action verification incomplete.');
   const warning=verified?
    (review.keyless?'Code and receipts verified. INTENTIONALLY KEYLESS: no owner has a normal access key.':
     'Code, finalized receipt outcomes and expected FullAccess owner key verified.'+
@@ -502,7 +510,7 @@ async function deploy(data,event){
    initializationVerified:review.initializationVerified,receiptCount:review.receiptCount,
    verified,failed:Boolean(finalized?.status?.Failure||tx?.status?.Failure),warning};
  }catch(e){
-  if(attempted)throw Error('Submission/verification is uncertain: '+safeError(e)+'. Check the selected network explorer BEFORE another attempt.');
+  if(attempted)throw Error('Submission/verification is uncertain: '+safeError(e)+'. A durable recovery record remains on disk. Open Transaction Recovery and inspect the blockchain BEFORE another attempt.');
   throw e;
  }finally{working=false;previewRecord=null}
 }
@@ -557,13 +565,18 @@ function register(){
  bind('upgrade-context',upgradeContext);
  bind('upgrade-prepare',prepareUpgrade);
  bind('deploy',deploy);
+ bind('recovery-list',recoveryList);
+ bind('recovery-reconcile',recoveryReconcile);
+ bind('recovery-attach',recoveryAttachHash);
+ bind('recovery-release',recoveryReleaseFailure);
  bind('library-list',()=>library.list());
  bind('library-save',saveContract);
  bind('library-load',selectSaved);
  bind('library-delete',async id=>{if(working)throw Error('Deployment in progress.');return library.delete(id)});
 }
 app.whenReady().then(async()=>{
- library=new Library(app.getPath('userData'));await library.init();register();
+ library=new Library(app.getPath('userData'));await library.init();
+ journal=new DeploymentJournal(app.getPath('userData'));await journal.init();register();
  session.defaultSession.setPermissionRequestHandler((_web,permission,done)=>done(false));
  session.defaultSession.webRequest.onBeforeRequest({urls:['https://*/*','http://*/*']},(_request,done)=>done({cancel:true}));
  const win=new BrowserWindow({width:1190,height:880,minWidth:870,minHeight:680,backgroundColor:'#070e17',
