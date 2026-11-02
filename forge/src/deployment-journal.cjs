@@ -61,6 +61,9 @@ class DeploymentJournal{
   return record;
  }
  async assertClear(network,target){
+  // Any corrupted active journal record is a global fail-closed condition:
+  // we cannot safely identify which target it was intended to guard.
+  await this.list();
   const record=await this.get(network,target);
   if(record)throw Error('RECOVERY REQUIRED: '+network+' '+target+' has an unresolved saved deployment attempt'+(record.txHash?' (tx '+record.txHash+')':' (no confirmed transaction hash)')+'. Open Transaction Recovery and inspect the record. Never retry blindly.');
  }
