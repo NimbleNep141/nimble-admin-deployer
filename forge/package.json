@@ -1,6 +1,6 @@
 {
   "name": "nearium-forge",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "private": true,
   "description": "Nearium Forge - Smart Contract Deployment Studio",
   "main": "src/main.cjs",

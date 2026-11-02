@@ -6,10 +6,19 @@ const fs=require('node:fs/promises');
 const path=require('node:path');
 const compilerManager=require('./compiler-manager.cjs');
 
-async function gitSnapshot(project,run=compilerManager.run){
+// Treat manifest-driven host environment forwarding as unsafe by default.
+// The build subprocess also receives an allowlisted environment, so unusual TOML
+// quoting cannot cause arbitrary Windows environment variables to be forwarded.
+async function forbidHostEnvForwarding(manifest){
+ const manifestText=await fs.readFile(manifest,'utf8');
+ if(/(?:^|[^A-Za-z0-9_])(?:passed_env|["']passed_env["'])\s*=/m.test(manifestText))
+  throw Error('Production build blocked: Cargo.toml declares passed_env. Remove host environment forwarding from reproducible_build and its variants before building.');
+}
+
+async function gitSnapshot(project,run=compilerManager.run,env){
  if(!project||project.kind!=='rust'||!path.isAbsolute(project.root))
   throw Error('Production reproducible builds require an open Rust project.');
- const invoke=(args,cwd=project.root)=>run('git',args,{cwd,timeout:15_000});
+ const invoke=(args,cwd=project.root)=>run('git',args,{cwd,env,timeout:15_000});
  let repoRoot;
  try{
   // Git for Windows may report MSYS/forward-slash or short-name paths.
@@ -34,6 +43,7 @@ async function gitSnapshot(project,run=compilerManager.run){
   try{await invoke(['ls-files','--error-unmatch','--',rel],repoRoot);}
   catch{throw Error('Production build blocked: '+rel+' must be committed to Git.');}
  }
+ await forbidHostEnvForwarding(manifest);
  return {repoRoot,commit,manifest,lock,projectRelative:relative};
 }
 async function status(userData){
@@ -52,7 +62,8 @@ async function build(project,userData,helpers,{onLog=()=>{}}={}){
  if(!ready.ready)throw Error(ready.reason);
  // The official CLI independently checks metadata, clones the committed source,
  // and launches its own Docker build. We never recreate that pipeline ourselves.
- const git=await gitSnapshot(project);
+ const childEnv=compilerManager.productionEnvironment(userData);
+ const git=await gitSnapshot(project,compilerManager.run,childEnv);
  const staged=await helpers.stageProject(project,userData);
  try{
   const outDir=path.join(staged.stage,'official-reproducible-output');
@@ -60,7 +71,7 @@ async function build(project,userData,helpers,{onLog=()=>{}}={}){
   onLog({stage:'reproducible',message:'NEAR production build from Git commit '+git.commit.slice(0,12)+'. cargo-near manages the Docker image and source checkout.'});
   const args=['near','build','reproducible-wasm','--manifest-path',git.manifest,'--out-dir',outDir,'--color','never'];
   const log=await compilerManager.run(compilerManager.paths(userData).near,args,{
-   cwd:project.root,env:compilerManager.environment(userData),timeout:1_800_000,
+   cwd:project.root,env:childEnv,timeout:1_800_000,
    onLog:msg=>onLog({stage:'reproducible',message:String(msg).slice(-450)})
   });
   const files=await helpers.wasmCandidates(outDir);
@@ -69,4 +80,4 @@ async function build(project,userData,helpers,{onLog=()=>{}}={}){
    script:'cargo near build reproducible-wasm',gitCommit:git.commit,log:log.slice(-2000)};
  }catch(e){await fs.rm(staged.stage,{recursive:true,force:true}).catch(()=>{});throw e;}
 }
-module.exports={gitSnapshot,status,build};
+module.exports={gitSnapshot,status,build,forbidHostEnvForwarding};
