@@ -29,6 +29,8 @@ contextBridge.exposeInMainWorld('forge',Object.freeze({
  keyFile:owner=>invoke('key-file',owner),
  disconnect:()=>invoke('disconnect'),
  preflight:data=>invoke('preflight',data),
+ upgradeContext:data=>invoke('upgrade-context',data),
+ upgradePrepare:data=>invoke('upgrade-prepare',data),
  deploy:data=>invoke('deploy',data),
  list:()=>invoke('library-list'),
  save:data=>invoke('library-save',data),
