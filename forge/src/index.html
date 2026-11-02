@@ -6,7 +6,7 @@
 <div class="app-shell">
 <header class="topbar">
   <div class="brand"><div class="brand-mark"><img class="brand-logo" src="./assets/nearium-forge-logo.png" alt="Nearium Forge logo"/></div><div class="brand-type"><b>NEARIUM <em>FORGE</em></b><small>SMART CONTRACT DEPLOYMENT STUDIO</small></div></div>
-  <div class="top-right"><span class="env-pill"><span class="live-dot"></span> NEAR TESTNET</span><span class="top-divider"></span><span class="version">DESKTOP ALPHA v0.2.0</span></div>
+  <div class="top-right"><span class="env-pill"><span class="live-dot"></span> NEAR TESTNET</span><span class="top-divider"></span><span class="version">DESKTOP ALPHA v0.3.0</span></div>
 </header>
 <div id="home" class="page">
   <div class="home-hero">
@@ -85,7 +85,7 @@
                 <label for="key-mode">New account ownership</label><select id="key-mode"><option value="controlled">Recoverable: add existing signer key</option><option value="keyless">Immutable: no access keys (advanced)</option></select>
                 <p class="field-info warning-text" id="keyless-warning" hidden>Keyless accounts cannot be upgraded or repaired through ordinary access-key transactions. Incorrect initialization can permanently strand funds.</p>
               </div>
-              <div id="existing-options" hidden><label class="checkbox-row"><input type="checkbox" id="replace-code"/> I approve replacing code already installed on this account.</label><p class="field-info warning-text">Upgrades can irreversibly break contract state. Only full-access keys belonging to the target account can authorize replacement.</p></div>
+              <div id="existing-options" hidden><label class="checkbox-row"><input type="checkbox" id="replace-code"/> I approve replacing code already installed on this account.</label><p class="field-info warning-text">Editing code locally does not alter the blockchain. After compiling the new WASM, explicitly approve replacement on your existing contract account. Upgrades can break state or require migrations; only a full-access key authorized for the target account can replace its code.</p></div>
               <label class="space-top">Expected contract address</label><div id="target" class="address-box">Enter signer account above</div>
               <div class="panel-divider"></div>
               <div class="subsection-title">INITIALIZATION <span>OPTIONAL</span></div>
@@ -151,6 +151,39 @@
  <div class="compiler-progress-head"><span>INSTALLATION / BUILD PROGRESS</span><b id="compiler-stage">IDLE</b></div>
  <div id="compiler-log" class="review-box compiler-log" role="status" aria-live="polite">Click Check Compiler to detect your installed tools, or Install / Repair to get started.</div>
  <p class="field-info warning-text">Disconnect your local signer before setup or compiling. Rust build scripts run native code. Compilation is not sandboxed. Microsoft C++ Build Tools may be needed.</p>
+</div>
+<div class="panel js-compiler-panel">
+  <div class="panel-title"><div><span class="step-index">JS</span><b>JavaScript &amp; TypeScript Builder</b></div><span class="status-dot neutral" id="js-status">EXPERIMENTAL</span></div>
+  <p class="field-info">Build NEAR JS/TS projects with a package.json build script. The official near-sdk-js contract SDK is archived and deprecated, so this feature is for legacy testnet experiments, not production token custody.</p>
+  <div class="compiler-status-grid js-status-grid">
+    <div class="compiler-stat"><span>NODE.JS</span><b id="node-state">Not checked</b></div>
+    <div class="compiler-stat"><span>DEPENDENCIES</span><b id="js-dependency-state">Open a project</b></div>
+    <div class="compiler-stat"><span>BUILD SCRIPT</span><b id="js-script-state">Open a project</b></div>
+  </div>
+  <div class="buttons compiler-controls">
+    <button id="node-check" class="button button-outline">Check Node.js</button>
+    <button id="node-install" class="button button-outline">Install Node.js</button>
+    <button id="js-dependencies" class="button button-outline">Install Dependencies</button>
+  </div>
+  <label for="js-build-script">Contract build script</label>
+  <select id="js-build-script"><option value="">Open a JS/TS project</option></select>
+  <button id="js-compile" class="button button-mint">Compile JavaScript / TypeScript <span>↗</span></button>
+  <p class="field-info warning-text">npm build scripts execute programs on your PC. Disconnect all signing credentials before building. JavaScript/TypeScript contract compilation is not sandboxed.</p>
+</div>
+<div class="panel code-editor-panel">
+  <div class="panel-title"><div><span class="step-index">✎</span><b>Source Code Editor</b></div><span class="status-dot neutral" id="source-status">NO PROJECT</span></div>
+  <p class="field-info">Open Rust, JS or TS project source code, edit it, and save with a local backup. Saving source never updates a deployed contract automatically.</p>
+  <div class="buttons compiler-controls">
+    <button id="source-project" class="button button-mint">Open Contract Project <span>＋</span></button>
+    <button id="source-reload" class="button button-outline">Discard Changes / Reload</button>
+    <button id="source-save" class="button button-outline" disabled>Save Source Changes</button>
+  </div>
+  <div class="source-project-label" id="source-project-path">No local source project selected</div>
+  <label for="source-file">Editable project file</label>
+  <select id="source-file"><option value="">Open a project to see its files</option></select>
+  <div class="source-editor-head"><span>LOCAL SOURCE EDITOR</span><b id="source-dirty">NO FILE</b></div>
+  <textarea id="source-code" class="source-code" rows="18" spellcheck="false" autocomplete="off" aria-label="Contract source editor" placeholder="Select a project and file to begin editing." disabled></textarea>
+  <p class="field-info">Edit .rs, .js, .ts, .jsx, .tsx, .json and .toml. Save creates a private local backup. To update on-chain code, compile a new WASM and explicitly approve an existing-account deployment.</p>
 </div>
 <div class="panel"><div class="panel-title"><div><span class="step-index">◇</span><b>Artifact details</b></div></div><div id="build-detail" class="review-box">No WASM loaded.</div></div>
         <div class="soft-note code-warning">Building untrusted Rust projects can run native build scripts and dependencies on your computer. Only compile source code you trust. Forge does not audit contract security.</div>
