@@ -8,6 +8,8 @@ const sourceEditor=require('./source-editor.cjs');
 // Metadata parser only. Native Windows Node/npm compiler IPC remains disabled.
 const jsToolchain=require('./js-toolchain.cjs');
 const isolatedBuilder=require('./isolated-builder.cjs');
+const reproducibleBuilder=require('./reproducible-builder.cjs');
+const compilerManager=require('./compiler-manager.cjs');
 const {YOCTO,networkConfig,accountId,fmt,wasm,sha,plan,actionsFor,displayActions}=require('./core.cjs');
 const {verifyDeployment}=require('./deployment-verification.cjs');
 const upgradeSafety=require('./upgrade-safety.cjs');
@@ -161,9 +163,10 @@ async function selectCompiledWasm(candidates,parent,origin){
  const fresh=wasm(await readFile(selected.file));
  if(sha(fresh)!==firstHash)throw Error('WASM changed during artifact review. Rebuild and select again.');
  current={bytes:fresh,name:path.basename(selected.file),hash:firstHash,
-  source:origin?.mode==='isolated'?(origin.project+' / '+(selected.name||path.basename(selected.file))):selected.file,
+  source:['isolated','reproducible'].includes(origin?.mode)?(origin.project+' / '+(selected.name||path.basename(selected.file))):selected.file,
   provenance:{mode:origin?.mode||'local',kind:origin?.kind||'unknown',project:origin?.project||null,
-   sourceSha256:origin?.sourceSha256||null,image:origin?.image||null,script:origin?.script||null}};
+   sourceSha256:origin?.sourceSha256||null,image:origin?.image||null,script:origin?.script||null,
+    gitCommit:origin?.gitCommit||null}};
  invalidate();return {contract:contractMetadata()};
 }
 // Source compilation is ONLY available through isolatedBuild, never via native cargo.
@@ -207,32 +210,74 @@ async function saveSource(data,event){
 // Native Node.js dependency installation and npm build scripts are disabled.
 // The Docker builder installs dependencies within its container and builds offline.
 async function isolatedStatus(){return isolatedBuilder.dockerStatus();}
+async function reproducibleStatus(){return reproducibleBuilder.status(app.getPath('userData'));}
+async function setupReproducible(_data,event){
+ if(working||compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy||isolateBusy)
+  throw Error('Finish the current operation before setting up production build tools.');
+ if(signer)throw Error('Disconnect the Mainnet/Testnet signer before installing production build tools.');
+ const parent=BrowserWindow.fromWebContents(event.sender);
+ if(!parent)throw Error('Native Windows confirmation unavailable.');
+ // Block key connections and network changes during user approval as well as installation.
+ compilerSetupBusy=true;
+ try{
+  const answer=await dialog.showMessageBox(parent,{
+   title:'Install Official NEAR Production Build Orchestrator',type:'warning',
+   buttons:['Cancel','Install Verified Tools'],defaultId:0,cancelId:0,noLink:true,
+   message:'Install official Rust/Cargo and pinned cargo-near on Windows for reproducible Docker builds?',
+   detail:'Forge uses official verified Rustup/Rust and cargo-near 0.22.0 packages. The Windows cargo-near CLI orchestrates Git and Docker; smart-contract compilation and project build scripts remain inside Docker. No native Windows project compilation is enabled. An internet connection and Git/Docker Desktop are needed.'});
+  if(answer.response!==1)return {cancelled:true};
+  return await compilerManager.setup(app.getPath('userData'),progress=>{
+   if(!event.sender.isDestroyed())event.sender.send('forge:compiler-progress',progress);
+  },{requireManaged:true});
+ }finally{compilerSetupBusy=false;}
+}
 async function isolatedBuild(data,event){
  ensureEditorIdle();
  if(signer)throw Error('Disconnect the Mainnet/Testnet signer before any Docker build. Do not build while a signing key is loaded.');
  if(!editorProject)throw Error('Open a Rust or JS/TS source project first.');
  const kind=editorProject.kind,script=String(data?.script||'');
- const ready=await isolatedBuilder.dockerStatus();
- if(!ready.ready)throw Error('ISOLATED BUILD REQUIRED: '+ready.reason+' Forge will not fall back to Windows native compilation.');
- const parent=BrowserWindow.fromWebContents(event.sender);
- if(!parent)throw Error('Native Windows approval unavailable.');
- const warning=kind==='javascript'?
-  'Dependencies will be installed in a disposable Linux container with network access. Legacy near-sdk-js may run install scripts. The build stage will be offline.':
-  'Cargo.lock is required. Rust dependencies are fetched in a disposable Linux container with network access, then compiled offline.';
- const selected=await dialog.showMessageBox(parent,{title:'Review Isolated NEAR Build',type:'warning',
-  buttons:['Cancel','Build in Restricted Container'],defaultId:0,cancelId:0,noLink:true,
-  message:'Build source in a disposable Docker Desktop Linux container?',
-  detail:'PROJECT: '+editorProject.root+'\nLANGUAGE: '+kind+'\nBUILD SCRIPT: '+(kind==='javascript'?script:'cargo near build')+
-   '\n\n'+warning+
-   '\n\nForge copies selected source files into a temporary workspace, excluding wallet keys, environment files, and dependency directories. Containers have restricted capabilities, CPU, memory and network access, but are not a perfect security boundary. Nothing is deployed on-chain.'});
- if(selected.response!==1)return {cancelled:true};
+ const buildMode=data?.buildMode||'development';
+ if(!['development','production'].includes(buildMode))throw Error('Select a supported build mode.');
+ if(buildMode==='production'&&kind!=='rust')throw Error('Official cargo-near reproducible builds are available for Rust projects only.');
+ // Set the guard BEFORE any async Docker query or approval dialog, to prevent
+ // connecting a signer or starting a deployment during a build-start race.
  isolateBusy=true;let result=null;
  try{
-  result=await isolatedBuilder.build(editorProject,app.getPath('userData'),{kind,script,
+  const ready=await isolatedBuilder.dockerStatus();
+  if(!ready.ready)throw Error('ISOLATED BUILD REQUIRED: '+ready.reason+' No Windows native compilation fallback.');
+  if(buildMode==='production'){
+   const tools=await reproducibleStatus();
+   if(!tools.ready)throw Error('Production toolchain is not ready: '+tools.reason);
+  }
+  const parent=BrowserWindow.fromWebContents(event.sender);
+  if(!parent)throw Error('Native Windows approval unavailable.');
+  const production=buildMode==='production';
+  const warning=production?
+   'OFFICIAL NEAR REPRODUCIBLE MODE: cargo-near runs on Windows only to orchestrate Git and Docker. It compiles the Git-committed Rust contract in its own Docker build. ALL changes must be committed, Cargo.lock tracked, and Cargo.toml must contain reproducible_build metadata including a pinned image digest. The build ignores unsaved source edits. Official cargo-near controls its Docker network and runtime options.':
+   kind==='javascript'?
+    'Dependencies are installed in disposable Docker Linux containers. Legacy near-sdk-js may execute install scripts. The compilation stage runs without container network access.':
+    'RUST DEVELOPMENT MODE: Forge stages allowed source into a disposable Docker workspace, downloads Cargo.lock dependencies, then runs the official cargo-near non-reproducible-wasm build offline.';
+  const choice=await dialog.showMessageBox(parent,{
+   title:production?'Review Official NEAR Reproducible Build':'Review Isolated NEAR Development Build',type:'warning',
+   buttons:['Cancel',production?'Build Committed Production WASM':'Build in Restricted Container'],
+   defaultId:0,cancelId:0,noLink:true,
+   message:production?'Run official cargo-near reproducible-wasm inside Docker?':'Build source in a restricted Docker Linux container?',
+   detail:'PROJECT: '+editorProject.root+'\nLANGUAGE: '+kind+
+    '\nMODE: '+(production?'PRODUCTION / GIT COMMIT':'DEVELOPMENT')+
+    '\nCOMMAND: '+(production?'cargo near build reproducible-wasm':kind==='rust'?'cargo near build non-reproducible-wasm':script)+
+    '\n\n'+warning+
+    '\n\nNothing is deployed or signed. Docker isolation and official reproducible tooling do not independently audit contract security.'});
+  if(choice.response!==1)return {cancelled:true};
+  result=await isolatedBuilder.build(editorProject,app.getPath('userData'),{kind,script,buildMode,
    onLog:progress=>{if(!event.sender.isDestroyed())event.sender.send('forge:compiler-progress',progress);}});
-  const picked=await selectCompiledWasm(result.files,parent,{mode:'isolated',kind,project:editorProject.root,
-   sourceSha256:result.staged.sourceSha256,image:result.image,script:result.script});
-  return {...picked,log:'Restricted container built '+result.files.length+' new WASM artifact(s). Source fingerprint: '+result.staged.sourceSha256};
+  const picked=await selectCompiledWasm(result.files,parent,{
+   mode:result.mode||'isolated',kind,project:editorProject.root,
+   sourceSha256:result.staged.sourceSha256,image:result.image,script:result.script,
+   gitCommit:result.gitCommit||null});
+  return {...picked,log:(result.mode==='reproducible'?
+   'Official cargo-near reproducible build from Git '+result.gitCommit+'. ':
+   'Restricted Docker development build. ')+
+   result.files.length+' newly built WASM artifact(s). Source fingerprint: '+result.staged.sourceSha256};
  }finally{
   if(result?.staged?.stage)await rm(result.staged.stage,{recursive:true,force:true}).catch(()=>{});
   isolateBusy=false;
@@ -492,6 +537,8 @@ function register(){
  bind('open-wasm',openWasm);
  // Disabled: 'compile-rust',compileRust (no native compilation IPC)
  bind('isolated-status',isolatedStatus);
+ bind('reproducible-status',reproducibleStatus);
+ bind('reproducible-setup',setupReproducible);
  bind('isolated-build',isolatedBuild);
  // Disabled: 'compiler-status',compilerStatus (no native compilation IPC)
  // Disabled: 'compiler-setup',setupCompiler (no native compilation IPC)
