@@ -6,7 +6,7 @@
 <div class="app-shell">
 <header class="topbar">
   <div class="brand"><div class="brand-mark"><img class="brand-logo" src="./assets/nearium-forge-logo.png" alt="Nearium Forge logo"/></div><div class="brand-type"><b>NEARIUM <em>FORGE</em></b><small>SMART CONTRACT DEPLOYMENT STUDIO</small></div></div>
-  <div class="top-right"><span class="env-pill" id="env-label"><span class="live-dot"></span> NEAR TESTNET</span><span class="top-divider"></span><span class="version">DESKTOP BETA v0.8.2</span></div>
+  <div class="top-right"><span class="env-pill" id="env-label"><span class="live-dot"></span> NEAR TESTNET</span><span class="top-divider"></span><span class="version">DESKTOP BETA v0.8.1</span></div>
 </header>
 <div id="home" class="page">
   <div class="home-hero">
@@ -139,25 +139,6 @@
           <div id="mainnet-gate" class="mainnet-gate" hidden><label class="checkbox-row"><input type="checkbox" id="mainnet-ack"/> I understand this deploys to NEAR Mainnet, spends REAL NEAR and cannot be reversed.</label><label for="mainnet-word">Type MAINNET to authorize real-funds deployment</label><input id="mainnet-word" autocomplete="off" spellcheck="false" placeholder="MAINNET"/></div>
            <div class="deploy-hint" id="deploy-hint">Run preflight before deploying.</div>
           <div class="result-box" id="deployment-result" role="status" aria-live="polite">No deployment transaction submitted in this session.</div>
-        </div>
-        <div class="panel recovery-panel">
-          <div class="panel-title"><div><span class="step-index">05</span><b>Persistent Transaction Recovery</b></div><span id="recovery-status" class="status-dot neutral">CHECKING</span></div>
-          <p class="field-info">Recovery records are saved in your local Windows Forge profile before broadcast. Uncertain transactions remain blocked across app restarts and network switches. Never resend a transaction until its outcome is verified.</p>
-          <label for="recovery-select">Unresolved deployment attempt</label>
-          <select id="recovery-select"><option value="">No unresolved transactions loaded</option></select>
-          <div id="recovery-detail" class="review-box" role="status" aria-live="polite">Select an unresolved transaction to review its target, network, code hash and receipt status.</div>
-          <div class="buttons compiler-controls">
-            <button id="recovery-refresh" class="button button-outline">Refresh Saved Attempts</button>
-            <button id="recovery-check" class="button button-mint" disabled>Check On-chain Finality</button>
-          </div>
-          <label for="recovery-hash">Attach a known transaction hash if Forge closed before saving it</label>
-          <input id="recovery-hash" spellcheck="false" autocomplete="off" placeholder="Paste the confirmed transaction hash" />
-          <button id="recovery-attach" class="button button-outline" disabled>Verify and Attach Transaction Hash</button>
-          <div class="panel-divider"></div>
-          <p class="field-info warning-text">A confirmed FAILED transaction may have created an account or executed some receipts. Inspect the blockchain and remaining balance first. Unknown or hashless attempts cannot be cleared by this button.</p>
-          <label for="recovery-target">To archive a confirmed failed transaction, type its exact target</label>
-          <input id="recovery-target" autocomplete="off" spellcheck="false" placeholder="Exact recovered contract account" />
-          <button id="recovery-release" class="button button-outline" disabled>Review Finalized Failure Before New Preflight</button>
         </div>
       </section>
 

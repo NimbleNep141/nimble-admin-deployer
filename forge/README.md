@@ -4,16 +4,6 @@
 
 Nearium Forge is a SEPARATE Windows 10/11 desktop application alongside the existing Nearium Factory Deployer. The original factory deployer remains unchanged. Forge uses its own source folder, workflow, and portable executable.
 
-## v0.8.2: Persistent NEAR transaction recovery
-
-**Deployment attempts are written durably to the local Windows Forge profile BEFORE any signed transaction is broadcast.** A per-network/target active file prevents accidental duplicate submission after network interruptions, app restarts, and uncertain RPC finality. Files use exclusive creation, flush-to-disk, and atomic replacement; confirmed outcomes are retained in the archived journal. No private keys or seed phrases are saved in these records. Never manually delete an active recovery file merely to retry a transaction.
-
-**New Transaction Recovery panel:** On the deployment screen, list unresolved attempts from either network, inspect their signer, target, expected WASM hash, and any saved transaction hash. Independently query NEAR transaction finality, executed receipts, code hash and access keys. A fully verified successful deployment is archived automatically and the target can pass a NEW preflight if a later upgrade is intended. If the app closed before a hash was recorded, you can paste one; Forge accepts it only when its finalized on-chain signer, target, and signing key match the saved attempt. A record without a verifiable hash remains blocked.
-
-**Finalized failures:** Even a failed transaction may have executed receipts or affected account state. Forge requires that the saved transaction be confirmed FINAL and failed, that you type the exact target, and that you approve a separate native Windows review before archiving that failed attempt. This does not retry, reverse, or authorize another transaction. After personal blockchain/account inspection, a fresh ordinary preflight and Cancel-default deployment approval are still required.
-
-**Unresolved limitations:** If NEAR does not provide historical transaction information, the attempt cannot automatically be cleared. Recovery verification uses Forge's existing receipt/action verification logic; it does not audit all action amounts, source code, or contract state migration. Journal files are local to your Windows profile, so restoring from a backup or migrating computers requires preserving that profile. This feature adds no automatic transaction rebroadcast, signing, or retry.
-
 ## v0.8.1: Host environment secret isolation for production builds
 
 Forge's official Rust production-build path now launches **both Git preflight and cargo-near** with a minimal allowlist of essential Windows system/toolchain environment variables. Arbitrary variables such as API tokens, cloud credentials, NEAR secret keys, credential-bearing proxy URLs, custom Git configuration overrides, and Docker host/context overrides are not inherited. This is enforced server-side in Forge's Electron main process, not merely through the user interface.
@@ -98,7 +88,7 @@ Existing-contract **Mainnet code upgrades are blocked by default**. This does no
 ## Download
 1. Open https://github.com/NimbleNep141/nimble-admin-deployer/actions/workflows/nearium-forge-windows.yml
 2. Select the latest successful build and download the Nearium-Forge-Windows-10-11 artifact under Artifacts.
-3. Extract the ZIP and run Nearium-Forge-Windows-0.8.2.exe.
+3. Extract the ZIP and run Nearium-Forge-Windows-0.8.1.exe.
 4. The portable EXE is UNSIGNED, and a SmartScreen warning may appear. Check the provided SHA256SUMS.txt and review the source and origin before running it.
 
 ## Features

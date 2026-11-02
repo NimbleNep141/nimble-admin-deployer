@@ -1,12 +1,12 @@
 {
   "name": "nearium-forge",
-  "version": "0.8.2",
+  "version": "0.8.1",
   "private": true,
   "description": "Nearium Forge - Smart Contract Deployment Studio",
   "main": "src/main.cjs",
   "scripts": {
     "test": "node --test tests/*.test.cjs",
-    "check": "node --check src/main.cjs && node --check src/preload.cjs && node --check src/renderer.js && node --check src/core.cjs && node --check src/deployment-verification.cjs && node --check src/upgrade-safety.cjs && node --check src/library.cjs && node --check src/source-editor.cjs && node --check src/js-toolchain.cjs && node --check src/isolated-builder.cjs && node --check src/reproducible-builder.cjs && node --check src/deployment-journal.cjs",
+    "check": "node --check src/main.cjs && node --check src/preload.cjs && node --check src/renderer.js && node --check src/core.cjs && node --check src/deployment-verification.cjs && node --check src/upgrade-safety.cjs && node --check src/library.cjs && node --check src/source-editor.cjs && node --check src/js-toolchain.cjs && node --check src/isolated-builder.cjs && node --check src/reproducible-builder.cjs",
     "dist": "electron-builder --win portable --x64 --publish never"
   },
   "dependencies": {
