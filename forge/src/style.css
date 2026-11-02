@@ -19,3 +19,15 @@
 
 /* Let Deployment Studio panels stack naturally on narrower windows. */
 @media(max-width:1110px){#view-deploy .two-col>.stack>.panel:last-child{flex:none}}
+
+/* Local-first NEAR integrated compiler setup */
+.compiler-panel{max-width:920px}
+.compiler-status-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:17px 0}
+.compiler-stat{background:#0b2028;border:1px solid #29444b;border-radius:9px;padding:11px;min-width:0}
+.compiler-stat>span{display:block;font-size:9px;letter-spacing:1.2px;color:#7aa7a8;font-weight:800;margin-bottom:8px}
+.compiler-stat>b{font-size:11px;color:#e5fff6;overflow-wrap:anywhere}
+.compiler-controls{display:flex;flex-wrap:wrap;gap:9px;margin:12px 0 16px}
+.compiler-progress-head{display:flex;justify-content:space-between;gap:8px;font-size:9px;letter-spacing:1.2px;color:#7ca7a8;font-weight:800;margin-bottom:8px}
+.compiler-progress-head b{color:#00ec97}
+.compiler-log{min-height:62px;max-height:140px;overflow-y:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+@media(max-width:840px){.compiler-status-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
