@@ -356,15 +356,27 @@ async function doDeploy(){
   if(report.cancelled){setResult('Cancelled by user. No transaction was submitted.');notify('Deployment cancelled.');return;}
   submittedTarget=report.network+':'+report.target;
   lastDeployment={network:report.network,address:report.target,txHash:report.txHash,verified:report.verified};
-  setResult('TARGET          '+report.target+
-    '\nTX HASH         '+(report.txHash||'unavailable')+
-    '\nSTATUS          '+(report.verified?'DEPLOYED · CODE HASH VERIFIED':'NEEDS INVESTIGATION')+
-    '\nON-CHAIN HASH   '+(report.codeHash||'unknown')+
-    '\nEXPECTED HASH   '+report.expectedCodeHash+
-    '\nACCESS KEYS     '+String(report.keyCount??'unknown')+
-    '\n'+report.warning,report.verified?'good':'error');
+  const status=report.verified?
+    (report.keyless?'CONFIRMED · INTENTIONALLY KEYLESS (NO OWNER KEY)':'CONFIRMED · OWNER KEY + RECEIPTS VERIFIED'):
+    'NOT VERIFIED · INSPECT TRANSACTION & RECEIPTS';
+  setResult('NETWORK          '+report.network.toUpperCase()+
+    '\nTARGET           '+report.target+
+    '\nTX HASH          '+(report.txHash||'unavailable')+
+    '\nSTATUS           '+status+
+    '\nFINALIZED        '+(report.finalityVerified?'YES':'NOT CONFIRMED')+
+    '\nRECEIPTS         '+(report.transactionVerified?'ALL SUCCESSFUL':'NOT CONFIRMED')+
+    '\nRECEIPT COUNT    '+String(report.receiptCount??'unknown')+
+    '\nINITIALIZER      '+(report.initializationVerified===null?'NOT REQUESTED':report.initializationVerified?'SUCCEEDED':'NOT CONFIRMED')+
+    '\nEXPECTED OWNER   '+(report.ownerKeyVerified?'FULLACCESS VERIFIED':report.keyless?'INTENTIONALLY KEYLESS':'NOT VERIFIED')+
+    '\nACCESS KEYS      '+String(report.keyCount??'unknown')+
+    '\nKEY DETAILS      '+(report.keyStatus||'not available')+
+    '\nON-CHAIN HASH    '+(report.codeHash||'unknown')+
+    '\nEXPECTED HASH    '+report.expectedCodeHash+
+    '\n\n'+report.warning,report.verified?'good':'error');
   setText('verify-address',report.target);
-  notify(report.verified?'Contract deployed. On-chain WASM hash verified.':'A transaction was attempted but not fully verified. Inspect receipts and do not retry.',!report.verified);
+  notify(report.verified?
+    (report.keyless?'Contract code and receipts verified. This account has NO OWNER KEY.':'Expected FullAccess owner key, deployed code, and finalized receipts verified.'):
+    'Transaction or ownership verification incomplete. Inspect receipts and do not retry automatically.',!report.verified);
  }catch(e){setResult('DEPLOYMENT DID NOT CONFIRM\n'+e.message+'\nNever retry without verifying account and receipts on NEAR '+selectedNetwork+'.','error');notify(e.message,true)}
  finally{review=null;el('ack').checked=false;el('upgrade-ack').checked=false;display('upgrade-ack-row',false);el('confirmation').value='';el('mainnet-ack').checked=false;el('mainnet-word').value='';busy(false);updateDeploy()}
 }

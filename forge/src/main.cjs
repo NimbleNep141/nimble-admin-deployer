@@ -10,6 +10,7 @@ const sourceEditor=require('./source-editor.cjs');
 const jsToolchain=require('./js-toolchain.cjs');
 const isolatedBuilder=require('./isolated-builder.cjs');
 const {YOCTO,networkConfig,accountId,fmt,wasm,sha,plan,actionsFor,displayActions}=require('./core.cjs');
+const {verifyDeployment}=require('./deployment-verification.cjs');
 
 let activeNetwork='testnet',switchingNetwork=false,networkOperations=0;
 const networkOperationNames=new Set(['network','inspect','import-key','key-file','preflight','deploy']);
@@ -468,30 +469,54 @@ async function deploy(data,event){
   // Explicitly recheck after UI approval. No transaction sent yet.
   const fresh=await preflight(data.config);
   if(fresh.p.target!==p.target||fresh.p.network!==activeNetwork)throw Error('Target or network changed after approval.');
-  const {actions}=await api();
+  const {actions,baseEncode}=await api();
+  const expected=baseEncode(createHash('sha256').update(current.bytes).digest());
+  const approvedPublicKey=signer.publicKey.toString();
   const list=actionsFor(actions,current.bytes,p,signer.publicKey);
   previewRecord=null;
   attempted=true;
   attemptedTargets.add(activeNetwork+':'+p.target);
-  // retries=0 is vital for create-account transactions, no automatic resubmission.
+  // No automatic retries. Do not resubmit if a post-send read or receipt check fails.
   const tx=await signer.account.signAndSendTransaction({
     receiverId:p.target,actions:list,retries:0,waitUntil:'FINAL',throwOnFailure:false
   });
   const txHash=tx?.transaction?.hash||tx?.transaction_outcome?.id||null;
-  const account=await queryAccount(p.target);
-  const keys=await rpc('query',{request_type:'view_access_key_list',finality:'final',account_id:p.target});
-  const {baseEncode}=await api();
-  const expected=baseEncode(createHash('sha256').update(current.bytes).digest());
-  const hashMatches=account?.code_hash===expected;
-  const keyCount=keys?.keys?.length??null;
-  const keyValid=p.mode==='existing'||p.keyMode==='keyless'?p.mode==='existing'||keyCount===0:keyCount===1;
-  const failed=Boolean(tx?.status?.Failure);
-  // Successful status doesn't prove contract initialization is semantically correct.
-  const verified=Boolean(!failed&&hashMatches&&keyValid);
+  // Independently re-query the canonical transaction including all executed receipts.
+  let finalized=null,transactionLookupError=null;
+  if(!txHash)transactionLookupError='Submission did not return a transaction hash.';
+  else{
+   try{finalized=await rpc('tx',{tx_hash:txHash,sender_account_id:p.signer,wait_until:'FINAL'});}
+   catch(e){transactionLookupError='Independent final transaction lookup failed: '+safeError(e);}
+  }
+  // Fail closed, but still attempt read-only state checks after an unsuccessful lookup.
+  const [accountResult,keyResult]=await Promise.allSettled([
+   queryAccount(p.target),
+   rpc('query',{request_type:'view_access_key_list',finality:'final',account_id:p.target})
+  ]);
+  const account=accountResult.status==='fulfilled'?accountResult.value:null;
+  const keys=keyResult.status==='fulfilled'?keyResult.value:null;
+  const review=verifyDeployment({
+   tx:finalized,txHash,signer:p.signer,target:p.target,publicKey:approvedPublicKey,
+   mode:p.mode,keyMode:p.keyMode,initMethod:p.init.method,account,keys,
+   expectedCodeHash:expected
+  });
+  if(transactionLookupError)review.reasons.unshift(transactionLookupError);
+  if(tx?.status?.Failure)review.reasons.push('The original signed transaction response reported an execution failure.');
+  if(accountResult.status==='rejected')review.reasons.push('On-chain account lookup failed: '+safeError(accountResult.reason));
+  if(keyResult.status==='rejected')review.reasons.push('On-chain access-key lookup failed: '+safeError(keyResult.reason));
+  const verified=review.verified&&review.reasons.length===0;
+  const warning=verified?
+   (review.keyless?'Code and receipts verified. INTENTIONALLY KEYLESS: no owner has a normal access key.':
+    'Code, finalized receipt outcomes and expected FullAccess owner key verified.'+
+     (review.otherKeyCount?' '+review.otherKeyCount+' additional key(s) remain on the existing account.':'')+
+     (p.init.method?' Initializer completed on chain; application state is not audited.':'')):
+   'NOT VERIFIED: '+review.reasons.join(' ').slice(0,1000)+' Do not retry without inspecting the transaction and receipts.';
   return {cancelled:false,network:activeNetwork,target:p.target,txHash,codeHash:account?.code_hash||null,
-   expectedCodeHash:expected,hashMatches,keyCount,verified,failed,
-   warning:verified?'Code hash and access-key checks passed. Review any initialization receipts separately.':
-   'Execution or post-deployment checks need review. Do not retry without investigating receipts.'};
+   expectedCodeHash:expected,hashMatches:review.hashMatches,keyCount:review.keyCount,
+   ownerKeyVerified:review.ownerKeyVerified,keyless:review.keyless,keyStatus:review.keyStatus,
+   finalityVerified:review.finalityVerified,transactionVerified:review.transactionVerified,
+   initializationVerified:review.initializationVerified,receiptCount:review.receiptCount,
+   verified,failed:Boolean(finalized?.status?.Failure||tx?.status?.Failure),warning};
  }catch(e){
   if(attempted)throw Error('Submission/verification is uncertain: '+safeError(e)+'. Check the selected network explorer BEFORE another attempt.');
   throw e;
