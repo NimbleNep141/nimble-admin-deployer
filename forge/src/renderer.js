@@ -1,7 +1,7 @@
 'use strict';
 const el=id=>document.getElementById(id);
 let active='home',view='deploy',artifact=null,localSigner=null,review=null,working=false,selectedNetwork='testnet';
-let saved=[],deletePending=null,submittedTarget=null,lastDeployment=null,recoveryRecords=[];
+let saved=[],deletePending=null,lastDeployment=null,recoveryRecords=[];
 const names={deploy:'Deployment Studio',library:'My Contract Library',verify:'Verify On-chain',build:'Compile / Import'};
 const descriptions={
  deploy:'A precision workflow from compiled bytecode to verified contract.',
@@ -378,13 +378,11 @@ async function doPreflight(){
 async function doDeploy(){
  if(!review){setResult('Run Preflight first.','error');return;}
  if(!el('ack').checked||el('confirmation').value.trim()!==review.target){setResult('Type the exact account address and acknowledge the risks.','error');return;}
- if(submittedTarget===selectedNetwork+':'+review.target){setResult('This target already had a deployment attempt in this session. Verify blockchain receipts before retrying.','error');return;}
  busy(true);
  setResult('Opening native Windows confirmation. Nothing is signed or sent until you choose Deploy Contract.');
  try{
   const report=await call('deploy',{config:config(),token:review.token,confirm:el('confirmation').value.trim(),ack:true,ackMigration:el('upgrade-ack').checked,upgradeToken:review.upgradeToken,ackMainnet:el('mainnet-ack').checked,confirmNetwork:el('mainnet-word').value.trim()});
   if(report.cancelled){setResult('Cancelled by user. No transaction was submitted.');notify('Deployment cancelled.');return;}
-  submittedTarget=report.network+':'+report.target;
   lastDeployment={network:report.network,address:report.target,txHash:report.txHash,verified:report.verified};
   const status=report.verified?
     (report.keyless?'CONFIRMED · INTENTIONALLY KEYLESS (NO OWNER KEY)':'CONFIRMED · OWNER KEY + RECEIPTS VERIFIED'):
