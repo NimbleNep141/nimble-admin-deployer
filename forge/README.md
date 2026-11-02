@@ -4,6 +4,10 @@
 
 Nearium Forge is a SEPARATE Windows 10/11 desktop application alongside the existing Nearium Factory Deployer. The original factory deployer remains unchanged. Forge uses its own source folder, workflow, and portable executable.
 
+## v0.7.1: JS/TS project opening regression fix
+
+Restores the metadata-only `jsToolchain` import used by **Open Contract Project** to read JavaScript/TypeScript `package.json` build scripts, lockfile status and deprecated SDK detection. The v0.7.0 Docker-only refactor unintentionally removed this import and broke JS/TS project opening. No local Node/npm compiler commands, native install handlers, or Windows build fallbacks have been re-enabled. Adds a functional regression fixture that opens a real TypeScript project and verifies metadata loading never executes package scripts. **Actual Docker Desktop compilation remains an untested Windows integration workflow** and requires hands-on validation.
+
 ## v0.7.0: Docker-only smart contract compilation (Option B)
 
 **Default and only in-app compile mode: restricted Docker Desktop Linux containers.** There is no automatic fallback to running Rust Cargo build scripts or JavaScript/TypeScript npm build scripts directly on Windows.
@@ -61,7 +65,7 @@ Existing-contract **Mainnet code upgrades are blocked by default**. This does no
 ## Download
 1. Open https://github.com/NimbleNep141/nimble-admin-deployer/actions/workflows/nearium-forge-windows.yml
 2. Select the latest successful build and download the Nearium-Forge-Windows-10-11 artifact under Artifacts.
-3. Extract the ZIP and run Nearium-Forge-Windows-0.7.0.exe.
+3. Extract the ZIP and run Nearium-Forge-Windows-0.7.1.exe.
 4. The portable EXE is UNSIGNED, and a SmartScreen warning may appear. Check the provided SHA256SUMS.txt and review the source and origin before running it.
 
 ## Features
