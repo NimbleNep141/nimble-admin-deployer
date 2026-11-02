@@ -9,11 +9,13 @@ const compilerManager=require('./compiler-manager.cjs');
 const sourceEditor=require('./source-editor.cjs');
 const jsToolchain=require('./js-toolchain.cjs');
 const isolatedBuilder=require('./isolated-builder.cjs');
-const {YOCTO,accountId,fmt,wasm,sha,plan,actionsFor,displayActions}=require('./core.cjs');
+const {YOCTO,networkConfig,accountId,fmt,wasm,sha,plan,actionsFor,displayActions}=require('./core.cjs');
 
-const RPC='https://rpc.testnet.near.org';
+let activeNetwork='testnet',switchingNetwork=false,networkOperations=0;
+const networkOperationNames=new Set(['network','inspect','import-key','key-file','preflight','deploy']);
 const EMPTY_CODE='11111111111111111111111111111111';
-let current=null,signer=null,previewRecord=null,pendingTarget=null,working=false,library=null,compilerSetupBusy=false,compilerBuildBusy=false,jsSetupBusy=false,jsBuildBusy=false,isolateBusy=false,editorProject=null,editorLoaded=null;
+let current=null,signer=null,previewRecord=null,working=false,library=null,compilerSetupBusy=false,compilerBuildBusy=false,jsSetupBusy=false,jsBuildBusy=false,isolateBusy=false,editorProject=null,editorLoaded=null;
+const attemptedTargets=new Set();
 function invalidate(){previewRecord=null;}
 const result=(code,data)=>({ok:true,data});
 function safeError(e){
@@ -22,27 +24,49 @@ function safeError(e){
 }
 function bind(name,handler){
  ipcMain.handle('forge:'+name,async(event,data)=>{
+  let guarded=false;
   try{
    if(event.sender.getURL()!==require('node:url').pathToFileURL(path.join(__dirname,'index.html')).toString())
-      throw Error('Untrusted application window.');
+    throw Error('Untrusted application window.');
+   if(networkOperationNames.has(name)){
+    if(switchingNetwork)throw Error('Network change in progress. Try again after it finishes.');
+    networkOperations++;guarded=true;
+   }
    return {ok:true,data:await handler(data,event)};
   }catch(e){return {ok:false,error:safeError(e)}}
+  finally{if(guarded)networkOperations--;}
  });
 }
 async function api(){return import('near-api-js');}
-async function rpc(method,params){
- const res=await fetch(RPC,{method:'POST',redirect:'error',headers:{'content-type':'application/json'},
+async function rpc(method,params,selected=activeNetwork){
+ const chain=networkConfig(selected);
+ const res=await fetch(chain.rpc,{method:'POST',redirect:'error',headers:{'content-type':'application/json'},
    signal:AbortSignal.timeout(30000),body:JSON.stringify({jsonrpc:'2.0',id:'nearium-forge',method,params})});
- if(!res.ok)throw Error('NEAR Testnet RPC HTTP '+res.status);
+ if(!res.ok)throw Error(chain.label+' RPC HTTP '+res.status);
  const json=await res.json();
  if(json.error){const error=Error(json.error?.message||'NEAR RPC error');
    error.rpcName=json.error?.cause?.name||json.error?.name;throw error;}
  return json.result;
 }
-async function network(){
- const s=await rpc('status',[]);
- if(s.chain_id!=='testnet')throw Error('RPC chain mismatch. Nearium Forge alpha cannot use mainnet.');
- return {network:'testnet',blockHeight:s.sync_info?.latest_block_height??null};
+async function network(selected=activeNetwork){
+ const chain=networkConfig(selected);
+ const s=await rpc('status',[],selected);
+ if(s?.chain_id!==chain.id)throw Error('RPC chain mismatch. Refusing to connect to an unexpected network.');
+ return {network:chain.id,blockHeight:s.sync_info?.latest_block_height??null,rpc:chain.rpc};
+}
+async function selectNetwork(requested){
+ const chain=networkConfig(requested);
+ if(working||networkOperations||switchingNetwork||compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy||isolateBusy)
+  throw Error('Finish the current operation before switching blockchain networks.');
+ switchingNetwork=true;
+ try{
+  const checked=await network(chain.id);
+  if(chain.id!==activeNetwork){
+   signer=null;invalidate();activeNetwork=chain.id;
+   // Attempted targets remain blocked for this session even across network changes.
+  }
+  return {...checked,signerDisconnected:true};
+ }finally{switchingNetwork=false;}
 }
 async function queryAccount(id){
  try{return await rpc('query',{request_type:'view_account',finality:'final',account_id:id});}
@@ -50,33 +74,33 @@ async function queryAccount(id){
 }
 async function price(){
  const p=await rpc('EXPERIMENTAL_protocol_config',{finality:'final'});
- if(p.chain_id!=='testnet')throw Error('Protocol config returned the wrong network.');
+ if(p.chain_id!==activeNetwork)throw Error('Protocol config returned the wrong network.');
  const n=p.runtime_config?.storage_amount_per_byte;
- if(!n||!/^\\d+$/.test(String(n)))throw Error('Testnet storage price unavailable.');
+ if(!n||!/^\\d+$/.test(String(n)))throw Error('Network storage price unavailable.');
  return BigInt(n);
 }
 async function importKey({owner,secret}){
  if(compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy||isolateBusy)throw Error('Compiler active. Disconnect signer until compilation is complete.');
  if(working)throw Error('Deployment in progress. Do not change the signer.');
- owner=accountId(owner);
+ owner=accountId(owner,activeNetwork);
  if(typeof secret!=='string'||secret.length>512||!/^ed25519:[1-9A-HJ-NP-Za-km-z]{70,110}$/.test(secret.trim()))
-  throw Error('Use a dedicated NEAR Testnet exported ed25519 private key. Do not enter a seed phrase.');
+  throw Error('Use an exported FullAccess ed25519 private key for the selected network. Never enter a seed phrase.');
  const {Account,JsonRpcProvider,KeyPairSigner}=await api();
  const key=KeyPairSigner.fromSecretKey(secret.trim());
  const publicKey=await key.getPublicKey();
  await network();
  const auth=await rpc('query',{request_type:'view_access_key',finality:'final',account_id:owner,public_key:publicKey.toString()});
- if(auth.permission!=='FullAccess')throw Error('This key is not a FullAccess key on that Testnet account.');
+ if(auth.permission!=='FullAccess')throw Error('This key is not a FullAccess key on that '+activeNetwork+' account.');
  const state=await queryAccount(owner);
- signer={owner,publicKey,account:new Account(owner,new JsonRpcProvider({url:RPC}),key)};
+ signer={owner,network:activeNetwork,publicKey,account:new Account(owner,new JsonRpcProvider({url:networkConfig(activeNetwork).rpc}),key)};
  invalidate();
- return {owner,publicKey:publicKey.toString(),balance:fmt(BigInt(state?.amount||'0'))};
+ return {owner,network:activeNetwork,publicKey:publicKey.toString(),balance:fmt(BigInt(state?.amount||'0'))};
 }
 async function importKeyFile(owner){
  if(compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy||isolateBusy)throw Error('Compiler active.');
  if(working)throw Error('Deployment in progress.');
- accountId(owner);
- const choice=await dialog.showOpenDialog({title:'Select a testnet-only NEAR key file',properties:['openFile'],
+ accountId(owner,activeNetwork);
+ const choice=await dialog.showOpenDialog({title:'Select a '+activeNetwork+' NEAR key file',properties:['openFile'],
    filters:[{name:'NEAR credentials',extensions:['json','txt']}]});
  if(choice.canceled)return {cancelled:true};
  const filename=choice.filePaths[0];
@@ -86,6 +110,7 @@ async function importKeyFile(owner){
  if(text.startsWith('{')){
   const obj=JSON.parse(text);
   if(obj.account_id&&obj.account_id!==owner)throw Error('Credential file account does not match.');
+   if((obj.network_id||obj.network)&&(obj.network_id||obj.network)!==activeNetwork)throw Error('Credential file network does not match the selected network.');
   key=obj.private_key||obj.secret_key;
  }
  return importKey({owner,secret:key});
