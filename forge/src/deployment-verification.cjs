@@ -72,7 +72,9 @@ function verifyFinalizedTransaction(tx,{txHash,signer,target,publicKey,mode,keyM
  if(!ids.length)issues.push('Transaction did not report the contract execution receipt.');
  if(receipts)for(const receipt of receipts)if(Array.isArray(receipt?.outcome?.receipt_ids))ids.push(...receipt.outcome.receipt_ids);
  if(ids.some(id=>typeof id!=='string'||!receiptIds.has(id)))issues.push('At least one downstream receipt was not confirmed.');
- const initializationVerified=Boolean(!initMethod||successfulTargetReceipt&&methodCorrect&&issues.every(e=>!e.startsWith('Receipt ')&&!e.includes('downstream receipt')&&!e.includes('outcomes are missing')));
+ // An initializer is independently verified only when the entire finalized execution
+ // and its receipt chain match the approved transaction, including the FunctionCall.
+ const initializationVerified=initMethod?issues.length===0:null;
  return {valid:issues.length===0,issues,receiptCount:receipts?.length??null,initializationVerified,finalityVerified:finalized};
 }
 function verifyDeployment({tx,txHash,signer,target,publicKey,mode,keyMode,initMethod,account,keys,expectedCodeHash}){
