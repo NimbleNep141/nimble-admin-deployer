@@ -6,7 +6,7 @@
 <div class="app-shell">
 <header class="topbar">
   <div class="brand"><div class="brand-mark"><img class="brand-logo" src="./assets/nearium-forge-logo.png" alt="Nearium Forge logo"/></div><div class="brand-type"><b>NEARIUM <em>FORGE</em></b><small>SMART CONTRACT DEPLOYMENT STUDIO</small></div></div>
-  <div class="top-right"><span class="env-pill"><span class="live-dot"></span> NEAR TESTNET</span><span class="top-divider"></span><span class="version">DESKTOP ALPHA v0.1.2</span></div>
+  <div class="top-right"><span class="env-pill"><span class="live-dot"></span> NEAR TESTNET</span><span class="top-divider"></span><span class="version">DESKTOP ALPHA v0.2.0</span></div>
 </header>
 <div id="home" class="page">
   <div class="home-hero">
@@ -67,7 +67,7 @@
               <div class="panel-title"><div><span class="step-index">01</span><b>Contract artifact</b></div><span id="artifact-status" class="status-dot neutral">NO WASM</span></div>
               <div id="artifact-detail" class="artifact-summary"><div class="file-icon">W</div><div><b>No contract selected</b><span>Import compiled .wasm or build Rust source</span></div></div>
               <div class="buttons"><button id="wasm-import" class="button button-mint">Import .WASM <span>＋</span></button><button id="rust-compile" class="button button-outline">Compile Rust Project</button></div>
-              <div class="soft-note">For Rust, cargo-near must be installed locally. JavaScript/TypeScript and other contracts can be compiled separately and imported as WASM.</div>
+              <div class="soft-note">Use Compile / Import → Compiler Manager to install Rust tools. JavaScript/TypeScript contracts are compiled separately.</div>
             </div>
             <div class="panel">
               <div class="panel-title"><div><span class="step-index">02</span><b>Local signer</b></div><span id="signer-status" class="status-dot neutral">DISCONNECTED</span></div>
@@ -136,9 +136,23 @@
         <div class="view-top"><span class="view-kicker">ARTIFACTS / TOOLCHAIN</span><h3>Compile & import</h3><p>Bring your contracts to the Forge. The bytecode, not the programming language, is what NEAR ultimately deploys.</p></div>
         <div class="feature-grid build-features">
           <div class="feature"><div class="feature-icon mint">W</div><span>ALL COMPATIBLE CONTRACTS</span><h3>Import .WASM</h3><p>Use Rust, JavaScript, TypeScript or another NEAR-compatible toolchain to produce WebAssembly. Import the resulting contract file.</p><button id="wasm-import-build" class="button button-mint">Browse WASM Files</button></div>
-          <div class="feature"><div class="feature-icon purple">⌘</div><span>RUST PROJECTS</span><h3>Compile locally</h3><p>Run cargo-near on a trusted Rust project containing Cargo.toml. Requires Rust and cargo-near installed on Windows.</p><button id="rust-compile-build" class="button button-outline">Select Rust Project</button></div>
+          <div class="feature"><div class="feature-icon purple">⌘</div><span>RUST PROJECTS</span><h3>Compile locally</h3><p>Select a trusted Rust project containing Cargo.toml. Compiler Manager can install Rust and cargo-near for you.</p><button id="rust-compile-build" class="button button-outline">Select Rust Project</button></div>
         </div>
-        <div class="panel"><div class="panel-title"><div><span class="step-index">◇</span><b>Artifact details</b></div></div><div id="build-detail" class="review-box">No WASM loaded.</div></div>
+        <div class="panel compiler-panel">
+ <div class="panel-title"><div><span class="step-index">⚙</span><b>Integrated Compiler Manager</b></div><span class="status-dot neutral" id="compiler-ready">NOT CHECKED</span></div>
+ <p class="field-info">Install and manage the NEAR Rust compiler through Forge. No PowerShell commands required. Official downloads are SHA-256 verified.</p>
+ <div class="compiler-status-grid">
+  <div class="compiler-stat"><span>RUSTUP</span><b id="rustup-state">Not checked</b></div>
+  <div class="compiler-stat"><span>RUST 1.97.1</span><b id="rust-state">Not checked</b></div>
+  <div class="compiler-stat"><span>WASM TARGET</span><b id="wasm-state">Not checked</b></div>
+  <div class="compiler-stat"><span>CARGO-NEAR</span><b id="cargo-near-state">Not checked</b></div>
+ </div>
+ <div class="buttons compiler-controls"><button id="compiler-check" class="button button-outline">Check Compiler</button><button id="compiler-install" class="button button-mint">Install / Repair Compiler Tools <span>↓</span></button></div>
+ <div class="compiler-progress-head"><span>INSTALLATION / BUILD PROGRESS</span><b id="compiler-stage">IDLE</b></div>
+ <div id="compiler-log" class="review-box compiler-log" role="status" aria-live="polite">Click Check Compiler to detect your installed tools, or Install / Repair to get started.</div>
+ <p class="field-info warning-text">Disconnect your local signer before setup or compiling. Rust build scripts run native code. Compilation is not sandboxed. Microsoft C++ Build Tools may be needed.</p>
+</div>
+<div class="panel"><div class="panel-title"><div><span class="step-index">◇</span><b>Artifact details</b></div></div><div id="build-detail" class="review-box">No WASM loaded.</div></div>
         <div class="soft-note code-warning">Building untrusted Rust projects can run native build scripts and dependencies on your computer. Only compile source code you trust. Forge does not audit contract security.</div>
       </section>
     </main>
