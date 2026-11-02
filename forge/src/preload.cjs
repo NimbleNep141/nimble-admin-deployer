@@ -6,6 +6,14 @@ contextBridge.exposeInMainWorld('forge',Object.freeze({
  inspect:id=>invoke('inspect',id),
  openWasm:()=>invoke('open-wasm'),
  compileRust:()=>invoke('compile-rust'),
+ compilerStatus:()=>invoke('compiler-status'),
+ compilerSetup:()=>invoke('compiler-setup'),
+ onCompilerProgress:listener=>{
+  if(typeof listener!=='function')return ()=>{};
+  const handler=(_event,data)=>{if(data&&typeof data.message==='string')listener(data);};
+  ipcRenderer.on('forge:compiler-progress',handler);
+  return ()=>ipcRenderer.removeListener('forge:compiler-progress',handler);
+ },
  artifact:()=>invoke('artifact'),
  importKey:data=>invoke('import-key',data),
  keyFile:owner=>invoke('key-file',owner),
