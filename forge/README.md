@@ -4,6 +4,20 @@
 
 Nearium Forge is a SEPARATE Windows 10/11 desktop application alongside the existing Nearium Factory Deployer. The original factory deployer remains unchanged. Forge uses its own source folder, workflow, and portable executable.
 
+## v0.7.0: Docker-only smart contract compilation (Option B)
+
+**Default and only in-app compile mode: restricted Docker Desktop Linux containers.** There is no automatic fallback to running Rust Cargo build scripts or JavaScript/TypeScript npm build scripts directly on Windows.
+
+1. Install **Docker Desktop for Windows**, enable its **Linux containers** engine and start Docker Desktop. Docker Desktop is an external prerequisite; Forge does not install Docker for you.
+2. Open **Compile / Import → Open Contract Project**, select a Rust project with `Cargo.toml` and `Cargo.lock`, or a JavaScript/TypeScript project with `package.json` and a supported contract build script. A pinned lockfile is recommended.
+3. Disconnect any Mainnet or Testnet FullAccess key in Forge before building. The main process blocks building with a connected signer even if the UI is bypassed.
+4. Click **Check Docker Desktop**, then **Build Open Project in Docker**. The Rust quick action and JavaScript/TypeScript Build button also use this same isolated build path.
+5. Forge stages only allowed files from the project into a temporary copy, fetches dependencies in a limited-network Docker step, and executes the compilation phase offline in restricted Docker Linux containers. It imports a newly generated WASM only after a separate Windows native artifact-confirmation dialog displays its SHA-256.
+6. If Docker is missing, stopped, has its Windows containers engine selected, or the build fails, **the build stops**. Forge does not run native Rust, cargo-near, Node, npm, or post-install scripts as a fallback. You can still import a previously compiled WASM file.
+7. When finished, reconnect a wallet and use normal preflight, explicit network confirmation and deployment. Compiling does not deploy any transaction.
+
+**Limitations:** Docker is a risk-reduction boundary rather than proof a dependency is safe. Staging filters filenames, not all secrets embedded in ordinary source files. The JavaScript/TypeScript container image is version-tagged rather than digest-pinned. Network access is required for dependency fetches and image pulls; the build stage runs offline. Use trusted source, review staged contents and dependencies, and rehearse deployments on Testnet. Existing native toolchain helper modules remain in the source tree for legacy compatibility/testing but are **not exposed** through the Forge IPC or interface in v0.7.0. Do not use valuable Mainnet accounts without separate testing and security review.
+
 ## v0.6.0: High-safety Mainnet upgrade compatibility gate
 
 Existing-contract **Mainnet code upgrades are blocked by default**. This does not change new-contract deployments or Testnet upgrades.
@@ -47,7 +61,7 @@ Existing-contract **Mainnet code upgrades are blocked by default**. This does no
 ## Download
 1. Open https://github.com/NimbleNep141/nimble-admin-deployer/actions/workflows/nearium-forge-windows.yml
 2. Select the latest successful build and download the Nearium-Forge-Windows-10-11 artifact under Artifacts.
-3. Extract the ZIP and run Nearium-Forge-Windows-0.6.0.exe.
+3. Extract the ZIP and run Nearium-Forge-Windows-0.7.0.exe.
 4. The portable EXE is UNSIGNED, and a SmartScreen warning may appear. Check the provided SHA256SUMS.txt and review the source and origin before running it.
 
 ## Features
