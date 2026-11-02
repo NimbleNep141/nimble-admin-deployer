@@ -5,11 +5,12 @@ const path=require('node:path');
 const {spawn}=require('node:child_process');
 const {randomUUID,createHash}=require('node:crypto');
 const {Library}=require('./library.cjs');
+const compilerManager=require('./compiler-manager.cjs');
 const {YOCTO,accountId,fmt,wasm,sha,plan,actionsFor,displayActions}=require('./core.cjs');
 
 const RPC='https://rpc.testnet.near.org';
 const EMPTY_CODE='11111111111111111111111111111111';
-let current=null,signer=null,previewRecord=null,pendingTarget=null,working=false,library=null;
+let current=null,signer=null,previewRecord=null,pendingTarget=null,working=false,library=null,compilerSetupBusy=false,compilerBuildBusy=false;
 function invalidate(){previewRecord=null;}
 const result=(code,data)=>({ok:true,data});
 function safeError(e){
@@ -52,6 +53,7 @@ async function price(){
  return BigInt(n);
 }
 async function importKey({owner,secret}){
+ if(compilerSetupBusy||compilerBuildBusy)throw Error('Compiler active. Disconnect signer until compilation is complete.');
  if(working)throw Error('Deployment in progress. Do not change the signer.');
  owner=accountId(owner);
  if(typeof secret!=='string'||secret.length>512||!/^ed25519:[1-9A-HJ-NP-Za-km-z]{70,110}$/.test(secret.trim()))
@@ -68,6 +70,7 @@ async function importKey({owner,secret}){
  return {owner,publicKey:publicKey.toString(),balance:fmt(BigInt(state?.amount||'0'))};
 }
 async function importKeyFile(owner){
+ if(compilerSetupBusy||compilerBuildBusy)throw Error('Compiler active.');
  if(working)throw Error('Deployment in progress.');
  accountId(owner);
  const choice=await dialog.showOpenDialog({title:'Select a testnet-only NEAR key file',properties:['openFile'],
@@ -100,8 +103,27 @@ function contractMetadata(){
  if(!current)return null;
  return {name:current.name,bytes:current.bytes.length,hash:current.hash,source:current.source};
 }
+async function compilerStatus(){return compilerManager.status(app.getPath('userData'));}
+async function setupCompiler(_unused,event){
+ if(working||compilerSetupBusy||compilerBuildBusy)throw Error('Another action is running.');
+ if(signer)throw Error('Disconnect the local signer before installing compiler tools.');
+ const parent=BrowserWindow.fromWebContents(event.sender);
+ if(!parent)throw Error('Native Windows confirmation unavailable.');
+ const choice=await dialog.showMessageBox(parent,{title:'Install NEAR Compiler Tools',type:'warning',
+  buttons:['Cancel','Install / Repair'],defaultId:0,cancelId:0,noLink:true,
+  message:'Install Rust and cargo-near for this Windows user?',
+  detail:'Rustup 1.29.0 from the official Rust archive, Rust 1.97.1 with WASM target, and cargo-near 0.22.0 from the official NEAR GitHub release. Both downloads require SHA-256 verification. Rust build scripts can run native code. Microsoft C++ Build Tools may be needed. Disconnect signing keys before setup or compilation.'});
+ if(choice.response!==1)return {cancelled:true};
+ compilerSetupBusy=true;
+ try{return await compilerManager.setup(app.getPath('userData'),progress=>{
+  if(!event.sender.isDestroyed())event.sender.send('forge:compiler-progress',progress);
+ });}finally{compilerSetupBusy=false;}
+}
 async function compileRust(_options,event){
- if(working)throw Error('Deployment in progress.');
+ if(working||compilerSetupBusy||compilerBuildBusy)throw Error('A compiler operation or deployment is active.');
+ if(signer)throw Error('Disconnect the local signer before compiling source.');
+ const tools=await compilerStatus();
+ if(!tools.ready)throw Error('Compiler not ready. Open Compile / Import and install/repair tools.');
  const selected=await dialog.showOpenDialog({title:'Choose trusted Rust NEAR project containing Cargo.toml',properties:['openDirectory']});
  if(selected.canceled)return {cancelled:true};
  const root=selected.filePaths[0];
@@ -116,15 +138,17 @@ async function compileRust(_options,event){
    detail:'Cargo build.rs and dependencies may execute programs on your Windows computer. Compile only source that you trust.\n\nProject: '+root
  });
  if(choice.response!==1)return {cancelled:true};
+ compilerBuildBusy=true;
+ try{
  // Rust Cargo build.rs and dependencies can execute native code. Only compile trusted sources.
  const output=await new Promise((resolve,reject)=>{
    const child=spawn('cargo',['near','build','non-reproducible-wasm','--no-abi'],{cwd:root,windowsHide:true,shell:false,
-     env:{...process.env,CARGO_TERM_COLOR:'never'}});
+     env:compilerManager.environment(app.getPath('userData'))});
    let stdout='',stderr='',ended=false;
    const cap=(s)=>s.slice(-24000);
-   child.stdout.on('data',d=>{stdout=cap(stdout+String(d))});
-   child.stderr.on('data',d=>{stderr=cap(stderr+String(d))});
-   const timeout=setTimeout(()=>{child.kill();},600000);
+   child.stdout.on('data',d=>{stdout=cap(stdout+String(d));if(!event.sender.isDestroyed())event.sender.send('forge:compiler-progress',{stage:'compile',message:String(d).slice(-300)})});
+   child.stderr.on('data',d=>{stderr=cap(stderr+String(d));if(!event.sender.isDestroyed())event.sender.send('forge:compiler-progress',{stage:'compile',message:String(d).slice(-300)})});
+   const timeout=setTimeout(()=>{child.kill();},900000);
    child.on('error',e=>{if(ended)return;ended=true;clearTimeout(timeout);reject(Error('cargo near could not start. Install Rust and cargo-near locally. '+e.message));});
    child.on('close',code=>{if(ended)return;ended=true;clearTimeout(timeout);
      if(code!==0)return reject(Error('Rust compilation failed (exit '+code+'). '+(stderr||stdout).slice(-1500)));
@@ -150,8 +174,10 @@ async function compileRust(_options,event){
  const b=wasm(await readFile(found.file));
  current={bytes:b,name:path.basename(found.file),hash:sha(b),source:found.file};invalidate();
  return {contract:contractMetadata(),log:output.log};
+ }finally{compilerBuildBusy=false;}
 }
 async function preflight(data){
+ if(compilerSetupBusy||compilerBuildBusy)throw Error('Compiler is active.');
  await network();
  if(!current)throw Error('Import or compile a NEAR-compatible WASM contract first.');
  if(!signer)throw Error('Connect a dedicated FullAccess Testnet key locally.');
@@ -197,6 +223,7 @@ async function check(data){
    keyMode:details.p.keyMode,init:details.p.init.method||'none'};
 }
 async function deploy(data,event){
+ if(compilerSetupBusy||compilerBuildBusy)throw Error('Compiler is active.');
  if(working)throw Error('Another deployment is running.');
  working=true;let attempted=false;
  try{
@@ -279,6 +306,8 @@ function register(){
  bind('inspect',inspectContract);
  bind('open-wasm',openWasm);
  bind('compile-rust',compileRust);
+ bind('compiler-status',compilerStatus);
+ bind('compiler-setup',setupCompiler);
  bind('artifact',contractMetadata);
  bind('import-key',importKey);
  bind('key-file',importKeyFile);
