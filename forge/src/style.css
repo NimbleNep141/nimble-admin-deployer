@@ -62,3 +62,12 @@ body.mainnet-active #network-select,body.mainnet-active .env-pill{border-color:#
 .mainnet-warning span{font-size:12px;line-height:1.5}
 .mainnet-gate label{color:#ffe0b2}
 .mainnet-gate #mainnet-word{border:1px solid #c8862e}
+
+/* v0.6.0 Mainnet state compatibility upgrade gate */
+.mainnet-upgrade-review{margin-top:18px;padding:16px;border:1px solid #c8862e;border-radius:12px;background:rgba(131,73,18,.12)}
+.mainnet-upgrade-review>.subsection-title{margin:18px 0 12px;color:#ffce91}
+.mainnet-upgrade-review>.subsection-title:first-child{margin-top:0}
+.mainnet-upgrade-review input:not([type="checkbox"]),.mainnet-upgrade-review textarea{max-width:100%;width:100%;box-sizing:border-box}
+.mainnet-upgrade-review .review-box{white-space:pre-wrap;overflow-wrap:anywhere;margin:12px 0 18px}
+.mainnet-upgrade-review .button{margin:10px 0}
+.mainnet-upgrade-review .checkbox-row{margin:10px 0;line-height:1.45}
