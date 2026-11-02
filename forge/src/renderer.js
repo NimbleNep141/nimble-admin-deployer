@@ -436,6 +436,42 @@ async function verify(){
   setText('verify-output',message);
  }catch(e){el('verify-output').className='review-box spacious error';setText('verify-output',e.message)}finally{busy(false)}
 }
+function paintNetwork(status=null){
+ const mainnet=selectedNetwork==='mainnet',label=mainnet?'Mainnet':'Testnet',suffix=mainnet?'.near':'.testnet';
+ el('network-select').value=selectedNetwork;
+ document.body.classList.toggle('mainnet-active',mainnet);
+ display('mainnet-warning',mainnet);display('mainnet-gate',mainnet);
+ setText('env-label','● NEAR '+selectedNetwork.toUpperCase());
+ setText('mini-network','NEAR '+label);
+ setText('pipeline-network',mainnet?'MAINNET · REAL NEAR':'TESTNET MODE');
+ setText('owner-label',label+' account address');
+ setText('secret-label','Full-access '+label+' private key (session only)');
+ el('owner').placeholder='youraccount'+suffix;
+ el('verify-address').placeholder='contract.youraccount'+suffix;
+ el('upgrade-target').placeholder='contract.youraccount'+suffix;
+ setText('preflight-network-label',label);
+ setText('network-status',status?'Connected · '+selectedNetwork.toUpperCase()+(status.blockHeight?' · Block '+status.blockHeight:''):'Selected: '+label);
+ modeUpdate();updateDeploy();
+}
+async function changeNetwork(){
+ const requested=el('network-select').value;
+ busy(true);
+ try{
+  const state=await call('setNetwork',requested);
+  selectedNetwork=state.network;
+  localSigner=null;lastDeployment=null;
+  for(const id of ['owner','secret','confirmation','verify-address','upgrade-target','mainnet-word'])el(id).value='';
+  el('mainnet-ack').checked=false;el('ack').checked=false;el('upgrade-ack').checked=false;el('replace-code').checked=false;
+  display('upgrade-ack-row',false);
+  setText('mini-signer','Not connected');setText('signer-status','DISCONNECTED');el('signer-status').className='status-dot neutral';
+  setText('signer-detail','Network changed. Import a FullAccess '+selectedNetwork+' key. Never use recovery phrases.');
+  setResult('Network switched. No transaction was submitted. New account, signer and preflight approval are required.');
+  setText('verify-output','Select an account on the active network to inspect.');
+  invalidate();paintNetwork(state);
+  notify('Network selected: '+selectedNetwork.toUpperCase()+'. Signing key disconnected. '+(selectedNetwork==='mainnet'?'CAUTION: real funds are at risk.':'Test NEAR only.'));
+ }catch(e){paintNetwork();notify('Cannot switch network: '+e.message,true)}
+ finally{busy(false)}
+}
 function wire(id,action){el(id).addEventListener('click',action)}
 wire('enter-studio',()=>studio('deploy'));wire('open-library-home',()=>studio('library'));wire('back-home',home);
 document.querySelectorAll('.nav-link').forEach(n=>n.addEventListener('click',()=>showView(n.dataset.view)));
@@ -472,11 +508,10 @@ for(const id of ['confirmation','ack','upgrade-ack','mainnet-ack','mainnet-word'
  for(const event of ['input','change'])el(id).addEventListener(event,updateDeploy);
 }
 async function initialize(){
- modeUpdate();updateDeploy();
+ modeUpdate();paintNetwork();updateDeploy();
  try{
-  const n=await call('network');
-  setText('network-status','Connected · '+n.network.toUpperCase()+(n.blockHeight?' · Block '+n.blockHeight:''));
- }catch(e){setText('network-status','Testnet unavailable');notify('Network check failed: '+e.message,true)}
+  const n=await call('network');selectedNetwork=n.network;paintNetwork(n);
+ }catch(e){setText('network-status',selectedNetwork+' unavailable');notify('Network check failed: '+e.message,true)}
  await refreshLibrary();
 }
 initialize();
