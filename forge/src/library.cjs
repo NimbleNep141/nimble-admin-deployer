@@ -2,12 +2,12 @@
 const {readFile,writeFile,mkdir,rename,copyFile,stat,unlink}=require('node:fs/promises');
 const path=require('node:path');
 const {randomUUID}=require('node:crypto');
-const {wasm,sha,accountId}=require('./core.cjs');
+const {wasm,sha,accountId,networkConfig}=require('./core.cjs');
 const MAX_ITEMS=500;
 function validTitle(s){if(typeof s!=='string'||!s.trim()||s.trim().length>70)throw Error('Saved contract name must be 1–70 characters.');return s.trim();}
 function validPreset(p){
  if(!p||typeof p!=='object')throw Error('Invalid contract preset.');
- return {mode:p.mode==='existing'?'existing':'new',prefix:typeof p.prefix==='string'?p.prefix.slice(0,24):'contract',
+ return {network:networkConfig(p.network||'testnet').id,mode:p.mode==='existing'?'existing':'new',prefix:typeof p.prefix==='string'?p.prefix.slice(0,24):'contract',
    funding:typeof p.funding==='string'?p.funding.slice(0,40):'6',keyMode:p.keyMode==='keyless'?'keyless':'controlled',
    initMethod:typeof p.initMethod==='string'?p.initMethod.slice(0,80):'',
    initArgs:typeof p.initArgs==='string'?p.initArgs.slice(0,16000):'{}',
@@ -33,9 +33,10 @@ class Library{
   try{await writeFile(file,binary,{flag:'wx'});}catch(e){if(e.code!=='EEXIST')throw e;}
   let deploymentRecord=null;
   if(deployment&&typeof deployment==='object'){
-   const address=accountId(deployment.address);
+   const network=networkConfig(deployment.network||'testnet').id;
+    const address=accountId(deployment.address,network);
    const txHash=typeof deployment.txHash==='string'&&/^[1-9A-HJ-NP-Za-km-z]{35,65}$/.test(deployment.txHash)?deployment.txHash:null;
-   deploymentRecord={address,txHash,verified:deployment.verified===true};
+   deploymentRecord={network,address,txHash,verified:deployment.verified===true};
   }
   const entry={id:randomUUID(),name:validTitle(name),sha256:hash,bytes:binary.length,preset:validPreset(preset),deployment:deploymentRecord,created:new Date().toISOString()};
   entries.unshift(entry);
