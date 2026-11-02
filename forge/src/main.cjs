@@ -1,13 +1,10 @@
 'use strict';
 const {app,BrowserWindow,ipcMain,dialog,session,shell}=require('electron');
-const {readFile,readdir,stat,rm}=require('node:fs/promises');
+const {readFile,stat,rm}=require('node:fs/promises');
 const path=require('node:path');
-const {spawn}=require('node:child_process');
 const {randomUUID,createHash}=require('node:crypto');
 const {Library}=require('./library.cjs');
-const compilerManager=require('./compiler-manager.cjs');
 const sourceEditor=require('./source-editor.cjs');
-const jsToolchain=require('./js-toolchain.cjs');
 const isolatedBuilder=require('./isolated-builder.cjs');
 const {YOCTO,networkConfig,accountId,fmt,wasm,sha,plan,actionsFor,displayActions}=require('./core.cjs');
 const {verifyDeployment}=require('./deployment-verification.cjs');
@@ -134,22 +131,8 @@ function contractMetadata(){
  if(!current)return null;
  return {name:current.name,bytes:current.bytes.length,hash:current.hash,source:current.source,provenance:current.provenance||null};
 }
-async function compilerStatus(){return compilerManager.status(app.getPath('userData'));}
-async function setupCompiler(_unused,event){
- if(working||compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy||isolateBusy)throw Error('Another action is running.');
- if(signer)throw Error('Disconnect the local signer before installing compiler tools.');
- const parent=BrowserWindow.fromWebContents(event.sender);
- if(!parent)throw Error('Native Windows confirmation unavailable.');
- const choice=await dialog.showMessageBox(parent,{title:'Install NEAR Compiler Tools',type:'warning',
-  buttons:['Cancel','Install / Repair'],defaultId:0,cancelId:0,noLink:true,
-  message:'Install Rust and cargo-near for this Windows user?',
-  detail:'Rustup 1.29.0 from the official Rust archive, Rust 1.97.1 with WASM target, and cargo-near 0.22.0 from the official NEAR GitHub release. Both downloads require SHA-256 verification. Rust build scripts can run native code. Microsoft C++ Build Tools may be needed. Disconnect signing keys before setup or compilation.'});
- if(choice.response!==1)return {cancelled:true};
- compilerSetupBusy=true;
- try{return await compilerManager.setup(app.getPath('userData'),progress=>{
-  if(!event.sender.isDestroyed())event.sender.send('forge:compiler-progress',progress);
- });}finally{compilerSetupBusy=false;}
-}
+// v0.7: Native Windows compiler setup and project execution are intentionally absent.
+// Host compilation is not a fallback if Docker is unavailable.
 async function selectCompiledWasm(candidates,parent,origin){
  if(!Array.isArray(candidates)||!candidates.length)throw Error('No newly generated contract WASM was found.');
  if(!parent)throw Error('Native contract selection unavailable.');
@@ -181,67 +164,7 @@ async function selectCompiledWasm(candidates,parent,origin){
    sourceSha256:origin?.sourceSha256||null,image:origin?.image||null,script:origin?.script||null}};
  invalidate();return {contract:contractMetadata()};
 }
-async function compileRust(_options,event){
- if(working||compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy||isolateBusy)throw Error('A compiler operation or deployment is active.');
- if(signer)throw Error('Disconnect the local signer before compiling source.');
- const tools=await compilerStatus();
- if(!tools.ready)throw Error('Compiler not ready. Open Compile / Import and install/repair tools.');
- let root=editorProject?.kind==='rust'?editorProject.root:null;
- if(editorProject&&editorProject.kind!=='rust')throw Error('Editor contains a JS/TS project. Open a Rust project first.');
- if(!root){
-  const selected=await dialog.showOpenDialog({title:'Choose trusted Rust NEAR project containing Cargo.toml',properties:['openDirectory']});
-  if(selected.canceled)return {cancelled:true};
-  root=selected.filePaths[0];
- }
- if(!(await stat(path.join(root,'Cargo.toml')).catch(()=>null)))throw Error('Folder must contain a Cargo.toml.');
- // Cargo build scripts and dependencies can execute native code on the host OS.
- const parent=BrowserWindow.fromWebContents(event.sender);
- if(!parent)throw Error('Cannot request native compile permission.');
- const choice=await dialog.showMessageBox(parent,{
-   title:'Compile Trusted Rust Source?',type:'warning',
-   buttons:['Cancel','Compile Rust Project'],defaultId:0,cancelId:0,
-   message:'Compile this Rust project with local cargo-near?',
-   detail:'Cargo build.rs and dependencies may execute programs on your Windows computer. Compile only source that you trust.\n\nProject: '+root
- });
- if(choice.response!==1)return {cancelled:true};
- compilerBuildBusy=true;
- const buildStart=Date.now();
- try{
- // Rust Cargo build.rs and dependencies can execute native code. Only compile trusted sources.
- const output=await new Promise((resolve,reject)=>{
-   const child=spawn('cargo',['near','build','non-reproducible-wasm','--no-abi'],{cwd:root,windowsHide:true,shell:false,
-     env:compilerManager.environment(app.getPath('userData'))});
-   let stdout='',stderr='',ended=false;
-   const cap=(s)=>s.slice(-24000);
-   child.stdout.on('data',d=>{stdout=cap(stdout+String(d));if(!event.sender.isDestroyed())event.sender.send('forge:compiler-progress',{stage:'compile',message:String(d).slice(-300)})});
-   child.stderr.on('data',d=>{stderr=cap(stderr+String(d));if(!event.sender.isDestroyed())event.sender.send('forge:compiler-progress',{stage:'compile',message:String(d).slice(-300)})});
-   const timeout=setTimeout(()=>{child.kill();},900000);
-   child.on('error',e=>{if(ended)return;ended=true;clearTimeout(timeout);reject(Error('cargo near could not start. Install Rust and cargo-near locally. '+e.message));});
-   child.on('close',code=>{if(ended)return;ended=true;clearTimeout(timeout);
-     if(code!==0)return reject(Error('Rust compilation failed (exit '+code+'). '+(stderr||stdout).slice(-1500)));
-     resolve({log:(stdout+'\n'+stderr).slice(-12000)});
-   });
- });
- async function scan(dir,depth=0){
-   if(depth>6)return [];
-   let result=[];
-   for(const entry of await readdir(dir,{withFileTypes:true}).catch(()=>[])){
-     const full=path.join(dir,entry.name);
-     if(entry.isDirectory())result.push(...await scan(full,depth+1));
-     else if(entry.isFile()&&entry.name.endsWith('.wasm')){
-       const info=await stat(full);if(info.size>8&&info.size<=3_500_000)result.push({file:full,mtime:info.mtimeMs});
-     }
-   }
-   return result;
- }
- const files=(await scan(path.join(root,'target'))).filter(x=>x.mtime>=buildStart-2000);
- if(!files.length)throw Error('Compilation completed but produced no new WASM. Forge will not reuse an older artifact.');
- files.sort((a,b)=>a.file.localeCompare(b.file));
- const candidates=files.map(x=>({...x,name:path.relative(root,x.file).replace(/\\/g,'/')}));
- const picked=await selectCompiledWasm(candidates,parent,{mode:'native',kind:'rust',project:root,script:'cargo near build'});
- return {...picked,log:output.log};
- }finally{compilerBuildBusy=false;}
-}
+// Source compilation is ONLY available through isolatedBuild, never via native cargo.
 function ensureEditorIdle(){
  if(working||compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy||isolateBusy)
   throw Error('A compiler or deployment operation is in progress.');
@@ -279,82 +202,16 @@ async function saveSource(data,event){
  if(!result.unchanged){current=null;invalidate();}
  return {file:result.file,hash:result.hash,unchanged:result.unchanged,backupCreated:Boolean(result.backup),artifactInvalidated:!result.unchanged};
 }
-async function nodeStatus(){
- return jsToolchain.status(app.getPath('userData'));
-}
-async function nodeSetup(_options,event){
- ensureEditorIdle();
- if(signer)throw Error('Disconnect the local signer before installing JavaScript compiler tools.');
- const parent=BrowserWindow.fromWebContents(event.sender);
- if(!parent)throw Error('Cannot show native Windows confirmation.');
- const answer=await dialog.showMessageBox(parent,{title:'Install Managed Node.js for JS/TS Contracts',type:'warning',
-  buttons:['Cancel','Install Node.js'],defaultId:0,cancelId:0,noLink:true,
-  message:'Install a local Node.js runtime for legacy JavaScript and TypeScript contract projects?',
-  detail:'Forge downloads pinned Node.js v22.21.0 from nodejs.org over HTTPS, verifies its published SHA-256 checksum, and extracts it into your Windows user profile. The official NEAR JavaScript smart contract SDK is archived and deprecated. Do not use experimental JS/TS contracts to hold valuable assets. Installation is local and will not access your signer.'});
- if(answer.response!==1)return {cancelled:true};
- jsSetupBusy=true;
- try{return await jsToolchain.install(app.getPath('userData'),progress=>{
-  if(!event.sender.isDestroyed())event.sender.send('forge:compiler-progress',progress);
- });}finally{jsSetupBusy=false;}
-}
-async function jsInstallDependencies(_options,event){
- ensureEditorIdle();
- if(signer)throw Error('Disconnect the local signer before installing project dependencies.');
- if(!editorProject||editorProject.kind!=='javascript')throw Error('Open a JavaScript or TypeScript project with package.json first.');
- const info=await jsToolchain.projectInfo(editorProject);
- if(info.legacySdk)throw Error('Official near-sdk-js is archived and its compiler explicitly does not support native Windows. Compile it in trusted WSL/Linux and import the resulting WASM. For new on-chain contracts use Rust.');
- const parent=BrowserWindow.fromWebContents(event.sender);
- if(!parent)throw Error('Native approval is required.');
- const answer=await dialog.showMessageBox(parent,{title:'Install Local JavaScript Project Dependencies',type:'warning',
-  buttons:['Cancel','Install Dependencies'],defaultId:0,cancelId:0,noLink:true,
-  message:'Install npm dependencies for '+info.name+'?',
-  detail:'This downloads dependencies listed by the selected project. npm lifecycle scripts are disabled during installation, but dependency packages may still be unsafe. Only use trusted projects. No signing keys may be connected.\n\n'+(info.hasLock?'Uses npm ci with the project lockfile.':'No package-lock.json found: npm install will resolve current dependency versions and generate a lockfile.')});
- if(answer.response!==1)return {cancelled:true};
- jsBuildBusy=true;
- try{
-  const log=await jsToolchain.installDependencies(app.getPath('userData'),editorProject,progress=>{
-   if(!event.sender.isDestroyed())event.sender.send('forge:compiler-progress',progress);
-  });
-  return {ok:true,log:log.slice(-3000)};
- }finally{jsBuildBusy=false;}
-}
-async function jsBuild(data,event){
- ensureEditorIdle();
- if(signer)throw Error('Disconnect the local signer before compiling a JavaScript or TypeScript project.');
- if(!editorProject||editorProject.kind!=='javascript')throw Error('Open a JavaScript/TypeScript project with package.json first.');
- const info=await jsToolchain.projectInfo(editorProject);
- if(info.legacySdk)throw Error('Official near-sdk-js builds are not supported on native Windows and the SDK is deprecated. Use a trusted Linux/WSL build environment and import its WASM.');
- const script=String(data?.script||'');
- const selected=info.scripts.find(s=>s.name===script);
- if(!selected)throw Error('The selected package.json build script no longer exists.');
- const parent=BrowserWindow.fromWebContents(event.sender);
- if(!parent)throw Error('Native Windows confirmation unavailable.');
- const answer=await dialog.showMessageBox(parent,{title:'Run JavaScript/TypeScript Contract Build',type:'warning',
-  buttons:['Cancel','Run Build Script'],defaultId:0,cancelId:0,noLink:true,
-  message:'Run npm script '+script+' for '+info.name+'?',
-  detail:'Project command:\n'+selected.command+'\n\nThis command may execute arbitrary native code on your computer. Only approve code you trust. NEAR near-sdk-js is archived/deprecated and its contracts should not be trusted with valuable assets. This compiles locally, without deploying or signing any transaction.'});
- if(answer.response!==1)return {cancelled:true};
- const started=Date.now();
- jsBuildBusy=true;
- try{
-  const log=await jsToolchain.build(app.getPath('userData'),editorProject,script,progress=>{
-   if(!event.sender.isDestroyed())event.sender.send('forge:compiler-progress',progress);
-  });
-  const candidates=(await jsToolchain.wasmFiles(editorProject)).filter(x=>x.mtime>=started-3000);
-  if(!candidates.length)throw Error('Build completed but did not produce fresh WASM. Older files will not be imported.');
-  const options=candidates.map(x=>({...x,name:path.relative(editorProject.root,x.file).replace(/\\/g,'/')}));
-  const picked=await selectCompiledWasm(options,parent,{mode:'native',kind:'javascript',project:editorProject.root,script});
-  return {...picked,log:log.slice(-4500),script};
- }finally{jsBuildBusy=false;}
-}
+// Native Node.js dependency installation and npm build scripts are disabled.
+// The Docker builder installs dependencies within its container and builds offline.
 async function isolatedStatus(){return isolatedBuilder.dockerStatus();}
 async function isolatedBuild(data,event){
  ensureEditorIdle();
- if(signer)throw Error('Disconnect the Testnet signer before an isolated build.');
+ if(signer)throw Error('Disconnect the Mainnet/Testnet signer before any Docker build. Do not build while a signing key is loaded.');
  if(!editorProject)throw Error('Open a Rust or JS/TS source project first.');
  const kind=editorProject.kind,script=String(data?.script||'');
  const ready=await isolatedBuilder.dockerStatus();
- if(!ready.ready)throw Error(ready.reason);
+ if(!ready.ready)throw Error('ISOLATED BUILD REQUIRED: '+ready.reason+' Forge will not fall back to Windows native compilation.');
  const parent=BrowserWindow.fromWebContents(event.sender);
  if(!parent)throw Error('Native Windows approval unavailable.');
  const warning=kind==='javascript'?
@@ -631,18 +488,18 @@ function register(){
  bind('set-network',selectNetwork);
  bind('inspect',inspectContract);
  bind('open-wasm',openWasm);
- bind('compile-rust',compileRust);
+ // Disabled: 'compile-rust',compileRust (no native compilation IPC)
  bind('isolated-status',isolatedStatus);
  bind('isolated-build',isolatedBuild);
- bind('compiler-status',compilerStatus);
- bind('compiler-setup',setupCompiler);
+ // Disabled: 'compiler-status',compilerStatus (no native compilation IPC)
+ // Disabled: 'compiler-setup',setupCompiler (no native compilation IPC)
  bind('project-open',chooseProject);
  bind('source-open',openSource);
  bind('source-save',saveSource);
- bind('node-status',nodeStatus);
- bind('node-setup',nodeSetup);
- bind('js-install',jsInstallDependencies);
- bind('js-build',jsBuild);
+ // Disabled: 'node-status',nodeStatus (no native compilation IPC)
+ // Disabled: 'node-setup',nodeSetup (no native compilation IPC)
+ // Disabled: 'js-install',jsInstallDependencies (no native compilation IPC)
+ // Disabled: 'js-build',jsBuild (no native compilation IPC)
  bind('artifact',contractMetadata);
  bind('import-key',importKey);
  bind('key-file',importKeyFile);
