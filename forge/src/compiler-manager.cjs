@@ -141,7 +141,7 @@ function cargoNearFromArchive(tarGz){
   throw Error('Verified archive does not contain a Windows cargo-near executable.');
  return found;
 }
-async function setup(userData,onProgress=()=>{}){
+async function setup(userData,onProgress=()=>{},{requireManaged=false}={}){
  assertWindows();
  let last=0;
  const progress=(stage,message,bytes=undefined,total=undefined)=>{
@@ -152,7 +152,7 @@ async function setup(userData,onProgress=()=>{}){
  try{
   const p=paths(userData),env=environment(userData);
   const current=await status(userData);
-  if(current.ready){progress('complete','All compiler components are already ready.');return current;}
+  if(current.ready&&(!requireManaged||current.managedCargoNear)){progress('complete','Official compiler components already ready.');return current;}
   if(!current.rustup.installed){
    progress('rustup','Downloading official Rustup installer and SHA-256 checksum.');
    const installer=await rustupInstaller((n,t)=>progress('download','Downloading Rustup',n,t));
@@ -166,7 +166,7 @@ async function setup(userData,onProgress=()=>{}){
   progress('rust','Ensuring Rust '+TOOLCHAIN+' and the NEAR WebAssembly target are installed.');
   await run(rustupExe,['toolchain','install',TOOLCHAIN,'--profile','minimal','--target',TARGET],
    {env,timeout:900_000,onLog:s=>progress('rust',s)});
-  if(!current.cargoNear.installed){
+  if(!current.managedCargoNear){
    progress('cargo-near','Downloading official cargo-near '+CARGO_NEAR+' and checking pinned SHA-256.');
    const archive=await download(NEAR_ARCHIVE,{provider:'github',limit:25_000_000,
     onProgress:(n,t)=>progress('download','Downloading cargo-near',n,t)});
@@ -182,8 +182,8 @@ async function setup(userData,onProgress=()=>{}){
    progress('cargo-near','Verified cargo-near binary installed in your local Forge compiler folder.');
   }
   const final=await status(userData);
-  if(!final.ready)throw Error('Tool installation finished, but readiness checks are incomplete. Restart Forge, click Check Compiler, and verify Visual Studio C++ tools if builds still fail.');
-  progress('complete','Compiler ready. You can compile a trusted Rust NEAR project.');
+  if(!final.ready||(requireManaged&&!final.managedCargoNear))throw Error('Official cargo-near setup is incomplete. Check installed Rust, cargo-near and Visual Studio C++ prerequisites.');
+  progress('complete','Verified official cargo-near is ready to orchestrate reproducible builds in Docker.');
   return final;
  }finally{await fs.rm(workDir,{recursive:true,force:true}).catch(()=>{});}
 }

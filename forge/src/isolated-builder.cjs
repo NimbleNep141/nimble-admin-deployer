@@ -7,6 +7,7 @@ const os=require('node:os');
 const {createHash,randomUUID}=require('node:crypto');
 const {run}=require('./compiler-manager.cjs');
 const {projectInfo}=require('./js-toolchain.cjs');
+const officialReproducible=require('./reproducible-builder.cjs');
 
 const NODE_IMAGE='node:22.21.0-bookworm';
 const RUST_IMAGE='sourcescan/cargo-near:0.22.0-rust-1.97.1@sha256:7467038bdddc86484b73b416eeadce926ff59013e128e53dec5a19e1cb4b2234';
@@ -109,10 +110,15 @@ async function wasmCandidates(workspace){
  await scan(workspace);
  return result.sort((a,b)=>a.name.localeCompare(b.name));
 }
-async function build(project,userData,{kind,script,onLog=()=>{}}={}){
+async function build(project,userData,{kind,script,buildMode='development',onLog=()=>{}}={}){
+ if(!['development','production'].includes(buildMode))throw Error('Select development or production build mode explicitly.');
  const d=await dockerStatus();
  if(!d.ready)throw Error(d.reason);
  if(kind!==project.kind)throw Error('Project kind changed. Open the correct project first.');
+ if(buildMode==='production'){
+  if(kind!=='rust')throw Error('Official cargo-near reproducible builds currently support Rust only. JS/TS remains an isolated development build.');
+  return officialReproducible.build(project,userData,{stageProject,wasmCandidates},{onLog});
+ }
  if(project.kind==='javascript'){
   const info=await projectInfo(project);
   if(!info.scripts.some(x=>x.name===script))throw Error('Select a supported project build script.');

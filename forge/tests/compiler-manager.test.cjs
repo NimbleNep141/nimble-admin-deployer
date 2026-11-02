@@ -61,7 +61,10 @@ test('native compiler is NOT exposed through Forge main or preload',()=>{
   assert.doesNotMatch(preload,new RegExp("invoke\\('"+name+"'"));
  }
  assert.doesNotMatch(main,/spawn\('cargo'/);
- assert.doesNotMatch(main,/compilerManager\.setup\(/);
+ assert.match(main,/bind\('reproducible-setup',setupReproducible\)/);
+ assert.match(main,/compilerManager\.setup\(app\.getPath\('userData'\)/);
+ assert.doesNotMatch(main,/spawn\('cargo'/);
+ assert.doesNotMatch(main,/bind\('compiler-setup'/);
  assert.match(ui,/Docker Build Environment/);
  assert.match(ui,/id="compiler-check"/);
  assert.match(ui,/id="compiler-log"/);

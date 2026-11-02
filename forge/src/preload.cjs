@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('forge',Object.freeze({
  openWasm:()=>invoke('open-wasm'),
  isolatedStatus:()=>invoke('isolated-status'),
  isolatedBuild:args=>invoke('isolated-build',args),
+ reproducibleStatus:()=>invoke('reproducible-status'),
+ reproducibleSetup:()=>invoke('reproducible-setup'),
  projectOpen:()=>invoke('project-open'),
  sourceOpen:file=>invoke('source-open',file),
  sourceSave:data=>invoke('source-save',data),
