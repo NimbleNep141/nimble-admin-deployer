@@ -1,6 +1,11 @@
 name: Nearium Forge · Windows Desktop Studio
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'forge/**'
+      - '.github/workflows/nearium-forge-windows.yml'
   push:
     branches: [main]
     paths:
