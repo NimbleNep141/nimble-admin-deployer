@@ -49,7 +49,7 @@ Nearium Forge is a SEPARATE Windows 10/11 desktop application alongside the exis
 8. Save the selected WASM and preset using My Contracts to restore them in future sessions.
 
 ## Security notes
-- Testnet only and experimental. Not externally audited or tested against every contract ABI.
+- Mainnet and Testnet network modes are experimental. Mainnet transactions spend real NEAR. The signer and deployment path have not been independently security-audited or validated with real-funds Mainnet deployment.
 - Importing a key exposes it to the app process memory; no signing key is persisted or uploaded.
 - No automatic transaction retries. Failed transactions can create funded keyless accounts, so verify receipts before retrying.
 - Recoverable new accounts reuse the parent's public key. Keyless accounts are intentionally non-upgradeable through ordinary account-key signing.
@@ -140,6 +140,6 @@ Use a dedicated disposable NEAR **Testnet** account. Do not consider v0.4 produc
 7. **Existing-account upgrade:** On a disposable already-deployed contract, explicitly enter the existing target account. Verify the upgrade workflow cannot proceed without target selection, review of old/new WASM hashes, and migration-risk acknowledgment. Test with compatible state first; never assume a safe state migration from matching hashes alone.
 8. **Failure modes:** Cancel confirmation, reject invalid or stale WASM, use incorrect network/account data, and simulate an uncertain transaction result. Verify there is no silent transaction retry and that receipts are inspected before manual recovery.
 9. **Secrets and isolation:** Ensure staged Docker inputs exclude credential files and wallet directories. Docker reduces exposure; downloaded dependencies and build scripts remain untrusted. Do not call this an audited secure sandbox.
-10. **Go/no-go:** Keep **TESTNET ONLY** labeling until real Windows build and on-chain test evidence has been recorded and an independent security review has been completed.
+10. **Go/no-go:** Label this as **EXPERIMENTAL MAINNET** until a funded Mainnet deployment and verification have been deliberately performed under controlled conditions and an independent security review is complete.
 
 **Known limitations:** The portable Windows executable is unsigned. Docker builds may download dependencies with network access during an isolated dependency-install phase; only the subsequent compile phase is configured to run without network access. Some deprecated `near-sdk-js` projects may fail under modern Node/Corepack or require lockfile adjustments. Upgrade compatibility is the contract author's responsibility.
