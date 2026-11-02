@@ -32,6 +32,7 @@ function showView(next){
  document.querySelectorAll('.nav-link').forEach(n=>n.classList.toggle('selected',n.dataset.view===next));
  setText('workspace-title',names[next]);setText('workspace-desc',descriptions[next]);setText('crumb-page',next.toUpperCase());
  if(next==='library')refreshLibrary();
+ if(next==='build')refreshCompiler();
  if(next==='verify'&&!el('verify-address').value.trim())el('verify-address').value=targetId();
 }
 function targetId(){
@@ -98,6 +99,42 @@ async function importWasm(){
   if(!res.cancelled){artifactUpdate(res);notify('Verified WebAssembly file imported: '+res.name);}
  }catch(e){notify(e.message,true)}finally{busy(false)}
 }
+let compilerBusy=false;
+function compilerView(state){
+ setText('rustup-state',state.rustup.installed?'Installed · '+state.rustup.detail:'Not installed');
+ setText('rust-state',state.rust.installed?'Ready · '+state.rust.detail:'Not installed');
+ setText('wasm-state',state.wasm.installed?'Installed':'Missing');
+ setText('cargo-near-state',state.cargoNear.installed?'Ready · '+state.cargoNear.detail:'Not installed');
+ el('compiler-ready').className='status-dot '+(state.ready?'live':'neutral');
+ setText('compiler-ready',state.ready?'READY':'SETUP NEEDED');
+}
+async function refreshCompiler(){
+ if(compilerBusy)return;
+ try{compilerView(await call('compilerStatus'));}
+ catch(e){setText('compiler-ready','CHECK FAILED');setText('compiler-log',e.message);}
+}
+async function setupCompilerUI(){
+ if(compilerBusy)return;
+ compilerBusy=true;busy(true);
+ el('compiler-check').disabled=true;el('compiler-install').disabled=true;
+ setText('compiler-stage','INSTALLING');
+ setText('compiler-log','Preparing official compiler components. A native Windows approval will appear.');
+ try{
+  const result=await call('compilerSetup');
+  if(result.cancelled)setText('compiler-log','Installation cancelled. No tool installations were started.');
+  else{compilerView(result);setText('compiler-log','Compiler ready. Select a trusted Rust project to build its WASM.');notify('Compiler Manager setup completed.');}
+ }catch(e){setText('compiler-log','Setup failed: '+e.message);notify('Compiler setup failed: '+e.message,true);}
+ finally{
+  compilerBusy=false;busy(false);
+  el('compiler-check').disabled=false;el('compiler-install').disabled=false;
+  await refreshCompiler();
+ }
+}
+window.forge.onCompilerProgress(progress=>{
+ if(!progress||typeof progress.message!=='string')return;
+ setText('compiler-stage',String(progress.stage||'RUNNING').toUpperCase());
+ setText('compiler-log',progress.message);
+});
 async function compileRust(){
  busy(true);notify('Choose a trusted Rust project. Cargo build scripts can run code on your PC. Never compile unknown projects.');
  try{
@@ -251,6 +288,7 @@ for(const id of ['wasm-import','wasm-import-build'])wire(id,importWasm);
 for(const id of ['rust-compile','rust-compile-build'])wire(id,compileRust);
 wire('toggle-secret',()=>{el('secret').type=el('secret').type==='password'?'text':'password'});
 wire('key-connect',()=>connectKey(false));wire('key-file',()=>connectKey(true));wire('key-disconnect',disconnectKey);
+wire('compiler-check',refreshCompiler);wire('compiler-install',setupCompilerUI);
 wire('preflight',doPreflight);wire('deploy',doDeploy);wire('save-current',saveCurrent);
 wire('saved-load',loadSaved);wire('saved-delete',deleteSaved);wire('saved-refresh',refreshLibrary);wire('verify-button',verify);
 wire('saved-verify',()=>{const entry=saved.find(x=>x.id===el('saved-select').value);if(!entry?.deployment?.address)return;
