@@ -6,7 +6,7 @@
 <div class="app-shell">
 <header class="topbar">
   <div class="brand"><div class="brand-mark"><img class="brand-logo" src="./assets/nearium-forge-logo.png" alt="Nearium Forge logo"/></div><div class="brand-type"><b>NEARIUM <em>FORGE</em></b><small>SMART CONTRACT DEPLOYMENT STUDIO</small></div></div>
-  <div class="top-right"><span class="env-pill" id="env-label"><span class="live-dot"></span> NEAR TESTNET</span><span class="top-divider"></span><span class="version">DESKTOP BETA v0.8.0</span></div>
+  <div class="top-right"><span class="env-pill" id="env-label"><span class="live-dot"></span> NEAR TESTNET</span><span class="top-divider"></span><span class="version">DESKTOP BETA v0.8.1</span></div>
 </header>
 <div id="home" class="page">
   <div class="home-hero">
@@ -188,7 +188,7 @@
    <option value="development">Development · cargo-near non-reproducible-wasm in restricted Docker</option>
    <option value="production">Production · official cargo-near reproducible-wasm (Git committed source)</option>
   </select>
-  <p class="field-info">Development accepts locally saved files. Production requires a clean committed Git project, tracked Cargo.lock, reproducible_build metadata and a verified official cargo-near Windows launcher that orchestrates Docker. JavaScript / TypeScript uses development mode only.</p>
+  <p class="field-info">Development accepts locally saved files. Production requires a clean committed Git project, tracked Cargo.lock, reproducible_build metadata and a verified official cargo-near Windows launcher that orchestrates Docker. JavaScript / TypeScript uses development mode only. Production releases block Cargo.toml passed_env settings and strip credentials, proxy secrets, and other custom environment variables from host build processes.</p>
   <div class="buttons compiler-controls">
    <button class="button button-outline" id="isolated-check">Check Docker Desktop</button>
    <button class="button button-mint" id="isolated-build">Build Open Project in Docker <span>↗</span></button>
