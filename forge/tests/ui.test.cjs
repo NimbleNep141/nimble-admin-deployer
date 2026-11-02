@@ -55,3 +55,9 @@ test('Windows executable icon is derived from the supplied Nearium Forge logo',(
  const pkg=JSON.parse(fs.readFileSync(path.join(__dirname,'../package.json'),'utf8'));
  assert.equal(pkg.build.win.icon,'src/assets/nearium-forge-icon.ico');
 });
+
+test('mainnet selection and explicit real-funds confirmation are wired',()=>{
+ for(const id of ['network-select','mainnet-ack','mainnet-word','mainnet-warning'])assert.ok(html.includes('id="'+id+'"'));
+ assert.match(js,/call\('setNetwork'/);
+ assert.match(js,/selectedNetwork==='mainnet'/);
+});

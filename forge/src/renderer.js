@@ -1,6 +1,6 @@
 'use strict';
 const el=id=>document.getElementById(id);
-let active='home',view='deploy',artifact=null,localSigner=null,review=null,working=false;
+let active='home',view='deploy',artifact=null,localSigner=null,review=null,working=false,selectedNetwork='testnet';
 let saved=[],deletePending=null,submittedTarget=null,lastDeployment=null;
 const names={deploy:'Deployment Studio',library:'My Contract Library',verify:'Verify On-chain',build:'Compile / Import'};
 const descriptions={
@@ -37,16 +37,16 @@ function showView(next){
 }
 function targetId(){
  const owner=el('owner').value.trim(),prefix=el('prefix').value.trim(),mode=el('mode').value;
- if(!owner.endsWith('.testnet'))return '';
+ if(!owner.endsWith(selectedNetwork==='mainnet'?'.near':'.testnet'))return '';
  return mode==='new'?prefix+'.'+owner:owner;
 }
 function modeUpdate(){
  const isNew=el('mode').value==='new';
  display('child-options',isNew);display('existing-options',!isNew);
- setText('target',targetId()||'Enter a valid owner.testnet account');
+ setText('target',targetId()||'Enter a valid '+selectedNetwork+' account');
 }
 function config(){
- return {owner:el('owner').value.trim(),mode:el('mode').value,
+ return {network:selectedNetwork,owner:el('owner').value.trim(),mode:el('mode').value,
   prefix:el('prefix').value.trim(),funding:el('funding').value.trim(),
   keyMode:el('key-mode').value,replace:el('replace-code').checked,
   initMethod:el('init-method').value.trim(),initArgs:el('init-args').value.trim(),
@@ -62,21 +62,23 @@ function updateDeploy(){
  const exact=Boolean(review&&el('confirmation').value.trim()===review.target);
  const ack=el('ack').checked;
  const migrationReady=!review?.upgrade||el('upgrade-ack').checked;
- const enabled=!working&&Boolean(review)&&exact&&ack&&migrationReady;
+ const mainnetReady=selectedNetwork!=='mainnet'||(el('mainnet-ack').checked&&el('mainnet-word').value.trim()==='MAINNET');
+ const enabled=!working&&Boolean(review)&&review.network===selectedNetwork&&exact&&ack&&migrationReady&&mainnetReady;
  el('deploy').disabled=!enabled;
  const hint=working?'An operation is in progress. Do not submit again.':
    !artifact?'Import a contract WASM or compile a Rust project first.':
-   !localSigner?'Connect a locally authorized testnet signing key first.':
+   !localSigner?'Connect a locally authorized '+selectedNetwork+' signing key first.':
    !review?'Run Preflight Check to verify target and build the transaction preview.':
    !exact?'Type the exact target address from the preflight results.':
    !ack?'Check the transaction review and acknowledgment box.':
    !migrationReady?'Review and acknowledge state migration risks before replacing this contract.':
+    !mainnetReady?'Check real-funds approval and type MAINNET exactly.':
    'Ready. The next step is a native Windows confirmation; Cancel is the default.';
  setText('deploy-hint',hint);
 }
 function busy(value){
  working=value;
- for(const id of ['wasm-import','rust-compile','wasm-import-build','rust-compile-build','key-connect','key-file','key-disconnect','preflight','save-current','saved-load','saved-delete','saved-refresh','saved-verify','verify-button','deploy','isolated-build','isolated-check','upgrade-start'])el(id).disabled=value;
+ for(const id of ['wasm-import','rust-compile','wasm-import-build','rust-compile-build','key-connect','key-file','key-disconnect','preflight','save-current','saved-load','saved-delete','saved-refresh','saved-verify','verify-button','deploy','isolated-build','isolated-check','upgrade-start','network-select'])el(id).disabled=value;
  if(!value){el('upgrade-start').disabled=!artifact||sourceDirty;updateDeploy();}
 }
 function artifactUpdate(meta){
@@ -274,7 +276,7 @@ async function runIsolatedBuild(){
 }
 function startUpgradeReview(){
  const target=el('upgrade-target').value.trim();
- if(!/^[a-z0-9]+(?:[._-][a-z0-9]+)*\.testnet$/.test(target)){notify('Enter the exact existing contract account ending in .testnet.',true);return;}
+ if(!new RegExp('^[a-z0-9]+(?:[._-][a-z0-9]+)*\\.'+(selectedNetwork==='mainnet'?'near':'testnet')+'$').test(target)){notify('Enter the exact '+selectedNetwork+' contract account.',true);return;}
  if(!artifact){notify('Compile or import a WASM before reviewing an upgrade.',true);return;}
  if(sourceDirty){notify('Save source edits and recompile before reviewing an upgrade.',true);return;}
  el('owner').value=target;
@@ -301,7 +303,7 @@ async function connectKey(useFile=false){
   localSigner=res;
   setText('signer-status','KEY READY');el('signer-status').className='status-dot live';
   setText('mini-signer',res.owner);
-  setText('signer-detail','Verified on-chain FullAccess testnet key · '+res.publicKey+'\nBalance: '+(res.balance||'check preflight')+' Ⓝ · This key is kept in session memory only.');
+  setText('signer-detail','Verified on-chain FullAccess '+selectedNetwork+' key · '+res.publicKey+'\nBalance: '+(res.balance||'check preflight')+' Ⓝ · This key is kept in session memory only.');
   notify('Local signer connected. No credentials are saved in the Forge library.');
   invalidate();
  }catch(e){notify('Could not connect signer: '+e.message,true)}
@@ -319,7 +321,7 @@ async function doPreflight(){
  try{
   const report=await call('preflight',config());review=report;
   const txt=[
-    'NETWORK                 NEAR Testnet',
+    'NETWORK                 NEAR '+report.network.toUpperCase(),
     'TARGET                  '+report.target,
     'OWNER                   '+report.owner,
     'WASM                    '+report.artifact.name+' ('+report.artifact.bytes+' bytes)',
@@ -346,14 +348,14 @@ async function doPreflight(){
 async function doDeploy(){
  if(!review){setResult('Run Preflight first.','error');return;}
  if(!el('ack').checked||el('confirmation').value.trim()!==review.target){setResult('Type the exact account address and acknowledge the risks.','error');return;}
- if(submittedTarget===review.target){setResult('This target already had a deployment attempt in this session. Verify blockchain receipts before retrying.','error');return;}
+ if(submittedTarget===selectedNetwork+':'+review.target){setResult('This target already had a deployment attempt in this session. Verify blockchain receipts before retrying.','error');return;}
  busy(true);
  setResult('Opening native Windows confirmation. Nothing is signed or sent until you choose Deploy Contract.');
  try{
-  const report=await call('deploy',{config:config(),token:review.token,confirm:el('confirmation').value.trim(),ack:true,ackMigration:el('upgrade-ack').checked});
+  const report=await call('deploy',{config:config(),token:review.token,confirm:el('confirmation').value.trim(),ack:true,ackMigration:el('upgrade-ack').checked,ackMainnet:el('mainnet-ack').checked,confirmNetwork:el('mainnet-word').value.trim()});
   if(report.cancelled){setResult('Cancelled by user. No transaction was submitted.');notify('Deployment cancelled.');return;}
-  submittedTarget=report.target;
-  lastDeployment={address:report.target,txHash:report.txHash,verified:report.verified};
+  submittedTarget=report.network+':'+report.target;
+  lastDeployment={network:report.network,address:report.target,txHash:report.txHash,verified:report.verified};
   setResult('TARGET          '+report.target+
     '\nTX HASH         '+(report.txHash||'unavailable')+
     '\nSTATUS          '+(report.verified?'DEPLOYED · CODE HASH VERIFIED':'NEEDS INVESTIGATION')+
@@ -363,8 +365,8 @@ async function doDeploy(){
     '\n'+report.warning,report.verified?'good':'error');
   setText('verify-address',report.target);
   notify(report.verified?'Contract deployed. On-chain WASM hash verified.':'A transaction was attempted but not fully verified. Inspect receipts and do not retry.',!report.verified);
- }catch(e){setResult('DEPLOYMENT DID NOT CONFIRM\n'+e.message+'\nNever retry without verifying account and receipts on NEAR Testnet.','error');notify(e.message,true)}
- finally{review=null;el('ack').checked=false;el('upgrade-ack').checked=false;display('upgrade-ack-row',false);el('confirmation').value='';busy(false);updateDeploy()}
+ }catch(e){setResult('DEPLOYMENT DID NOT CONFIRM\n'+e.message+'\nNever retry without verifying account and receipts on NEAR '+selectedNetwork+'.','error');notify(e.message,true)}
+ finally{review=null;el('ack').checked=false;el('upgrade-ack').checked=false;display('upgrade-ack-row',false);el('confirmation').value='';el('mainnet-ack').checked=false;el('mainnet-word').value='';busy(false);updateDeploy()}
 }
 async function refreshLibrary(){
  try{
@@ -379,7 +381,7 @@ async function refreshLibrary(){
 }
 function savedUpdate(){
  const entry=saved.find(x=>x.id===el('saved-select').value);
- if(entry)setText('saved-detail',entry.name+'\nSHA-256 '+entry.sha256+'\n'+entry.bytes+' bytes · Added '+entry.created+(entry.deployment?'\nDeployed: '+entry.deployment.address+'\nTransaction: '+(entry.deployment.txHash||'not recorded'):''));
+ if(entry)setText('saved-detail',entry.name+'\nSHA-256 '+entry.sha256+'\n'+entry.bytes+' bytes · '+(entry.preset?.network||'testnet').toUpperCase()+' · Added '+entry.created+(entry.deployment?'\nDeployed: '+entry.deployment.address+'\nTransaction: '+(entry.deployment.txHash||'not recorded'):''));
  else setText('saved-detail','Select a saved contract to view its WASM hash and deployment preset.');
  el('saved-load').disabled=!entry;el('saved-delete').disabled=!entry;el('saved-verify').disabled=!entry?.deployment?.address;
  deletePending=null;setText('saved-delete','Remove from Library');
@@ -393,6 +395,7 @@ async function saveCurrent(){
  }catch(e){notify('Save failed: '+e.message,true)}finally{busy(false)}
 }
 function usePreset(p){
+ if((p.network||'testnet')!==selectedNetwork){notify('Saved preset uses '+(p.network||'testnet')+'. Switch to that network first.',true);return false;}
  const values={mode:p.mode||'new',prefix:p.prefix||'contract',funding:p.funding||'6',
   'key-mode':p.keyMode||'controlled','init-method':p.initMethod||'','init-args':p.initArgs||'{}',
   gas:p.gas||'30','init-deposit':p.initDeposit||'0'};
@@ -404,7 +407,7 @@ function usePreset(p){
 async function loadSaved(){
  const id=el('saved-select').value;if(!id)return;busy(true);
  try{
-  const x=await call('load',id);artifactUpdate(x.contract);usePreset(x.entry.preset);
+  const x=await call('load',id);artifactUpdate(x.contract);if(usePreset(x.entry.preset)===false){el('owner').value='';showView('deploy');return;}
   el('save-name').value=x.entry.name;showView('deploy');notify('Loaded '+x.entry.name+' with saved deployment settings. Run preflight before deployment.');
  }catch(e){notify('Cannot load saved contract: '+e.message,true)}finally{busy(false)}
 }
@@ -417,12 +420,12 @@ async function deleteSaved(){
 }
 async function verify(){
  const id=el('verify-address').value.trim();
- busy(true);setText('verify-output','Inspecting account directly on NEAR Testnet…');
+ busy(true);setText('verify-output','Inspecting account directly on NEAR '+selectedNetwork+'…');
  try{
   const o=await call('inspect',id);
-  const message=!o.exists?'Account does not exist on NEAR Testnet: '+o.account:
+  const message=!o.exists?'Account does not exist on NEAR '+o.network+': '+o.account:
     'CONTRACT ADDRESS      '+o.account+
-    '\nNETWORK               NEAR Testnet'+
+    '\nNETWORK               NEAR '+o.network.toUpperCase()+
     '\nCODE HASH             '+o.codeHash+
     '\nACCESS KEYS           '+o.keys+
     '\nACCOUNT BALANCE       '+o.balance+' NEAR'+
@@ -432,6 +435,46 @@ async function verify(){
   el('verify-output').className='review-box spacious '+(o.exists?'good':'error');
   setText('verify-output',message);
  }catch(e){el('verify-output').className='review-box spacious error';setText('verify-output',e.message)}finally{busy(false)}
+}
+function paintNetwork(status=null){
+ const mainnet=selectedNetwork==='mainnet',label=mainnet?'Mainnet':'Testnet',suffix=mainnet?'.near':'.testnet';
+ el('network-select').value=selectedNetwork;
+ document.body.classList.toggle('mainnet-active',mainnet);
+ display('mainnet-warning',mainnet);display('mainnet-gate',mainnet);
+ setText('env-label','● NEAR '+selectedNetwork.toUpperCase());
+ setText('mini-network','NEAR '+label);
+ setText('pipeline-network',mainnet?'MAINNET · REAL NEAR':'TESTNET MODE');
+ setText('owner-label',label+' account address');
+ setText('secret-label','Full-access '+label+' private key (session only)');
+ el('owner').placeholder='youraccount'+suffix;
+ el('verify-address').placeholder='contract.youraccount'+suffix;
+ el('upgrade-target').placeholder='contract.youraccount'+suffix;
+ setText('preflight-network-label',label);
+ setText('network-status',status?'Connected · '+selectedNetwork.toUpperCase()+(status.blockHeight?' · Block '+status.blockHeight:''):'Selected: '+label);
+ modeUpdate();updateDeploy();
+}
+async function changeNetwork(){
+ const requested=el('network-select').value;
+ busy(true);
+ try{
+  const state=await call('setNetwork',requested);
+  selectedNetwork=state.network;
+  localSigner=null;lastDeployment=null;
+  for(const id of ['owner','secret','confirmation','verify-address','upgrade-target','mainnet-word'])el(id).value='';
+  el('mainnet-ack').checked=false;el('ack').checked=false;el('upgrade-ack').checked=false;el('replace-code').checked=false;
+  el('mode').value='new';el('key-mode').value='controlled';
+  el('funding').value=selectedNetwork==='mainnet'?'1':'6';
+  el('init-method').value='';el('init-args').value='{}';el('init-deposit').value='0';
+  display('keyless-warning',false);
+  display('upgrade-ack-row',false);
+  setText('mini-signer','Not connected');setText('signer-status','DISCONNECTED');el('signer-status').className='status-dot neutral';
+  setText('signer-detail','Network changed. Import a FullAccess '+selectedNetwork+' key. Never use recovery phrases.');
+  setResult('Network switched. No transaction was submitted. New account, signer and preflight approval are required.');
+  setText('verify-output','Select an account on the active network to inspect.');
+  invalidate();paintNetwork(state);
+  notify('Network selected: '+selectedNetwork.toUpperCase()+'. Signing key disconnected. '+(selectedNetwork==='mainnet'?'CAUTION: real funds are at risk.':'Test NEAR only.'));
+ }catch(e){paintNetwork();notify('Cannot switch network: '+e.message,true)}
+ finally{busy(false)}
 }
 function wire(id,action){el(id).addEventListener('click',action)}
 wire('enter-studio',()=>studio('deploy'));wire('open-library-home',()=>studio('library'));wire('back-home',home);
@@ -451,8 +494,10 @@ el('source-file').addEventListener('change',()=>openSourceFile(el('source-file')
 el('source-code').addEventListener('input',()=>setSourceDirty(Boolean(sourceFile&&el('source-code').value!==sourceFile.text)));
 wire('preflight',doPreflight);wire('deploy',doDeploy);wire('save-current',saveCurrent);
 wire('saved-load',loadSaved);wire('saved-delete',deleteSaved);wire('saved-refresh',refreshLibrary);wire('verify-button',verify);
+ el('network-select').addEventListener('change',changeNetwork);
 wire('saved-verify',()=>{const entry=saved.find(x=>x.id===el('saved-select').value);if(!entry?.deployment?.address)return;
- el('verify-address').value=entry.deployment.address;showView('verify');verify();});
+ if((entry.deployment.network||'testnet')!==selectedNetwork){notify('Saved deployment is on '+(entry.deployment.network||'testnet')+'. Switch networks before verifying.',true);return;}
+  el('verify-address').value=entry.deployment.address;showView('verify');verify();});
 el('saved-select').addEventListener('change',savedUpdate);
 const inputs=['owner','mode','prefix','funding','key-mode','replace-code','init-method','init-args','gas','init-deposit'];
 for(const id of inputs){
@@ -463,15 +508,14 @@ for(const id of inputs){
   invalidate();
  });
 }
-for(const id of ['confirmation','ack','upgrade-ack']){
+for(const id of ['confirmation','ack','upgrade-ack','mainnet-ack','mainnet-word']){
  for(const event of ['input','change'])el(id).addEventListener(event,updateDeploy);
 }
 async function initialize(){
- modeUpdate();updateDeploy();
+ modeUpdate();paintNetwork();updateDeploy();
  try{
-  const n=await call('network');
-  setText('network-status','Connected · '+n.network.toUpperCase()+(n.blockHeight?' · Block '+n.blockHeight:''));
- }catch(e){setText('network-status','Testnet unavailable');notify('Network check failed: '+e.message,true)}
+  const n=await call('network');selectedNetwork=n.network;paintNetwork(n);
+ }catch(e){setText('network-status',selectedNetwork+' unavailable');notify('Network check failed: '+e.message,true)}
  await refreshLibrary();
 }
 initialize();

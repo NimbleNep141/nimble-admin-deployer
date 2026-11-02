@@ -3,6 +3,7 @@ const {contextBridge,ipcRenderer}=require('electron');
 function invoke(action,data){return ipcRenderer.invoke('forge:'+action,data);}
 contextBridge.exposeInMainWorld('forge',Object.freeze({
  network:()=>invoke('network'),
+ setNetwork:network=>invoke('set-network',network),
  inspect:id=>invoke('inspect',id),
  openWasm:()=>invoke('open-wasm'),
  compileRust:()=>invoke('compile-rust'),

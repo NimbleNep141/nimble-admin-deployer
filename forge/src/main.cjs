@@ -9,11 +9,13 @@ const compilerManager=require('./compiler-manager.cjs');
 const sourceEditor=require('./source-editor.cjs');
 const jsToolchain=require('./js-toolchain.cjs');
 const isolatedBuilder=require('./isolated-builder.cjs');
-const {YOCTO,accountId,fmt,wasm,sha,plan,actionsFor,displayActions}=require('./core.cjs');
+const {YOCTO,networkConfig,accountId,fmt,wasm,sha,plan,actionsFor,displayActions}=require('./core.cjs');
 
-const RPC='https://rpc.testnet.near.org';
+let activeNetwork='testnet',switchingNetwork=false,networkOperations=0;
+const networkOperationNames=new Set(['network','inspect','import-key','key-file','preflight','deploy']);
 const EMPTY_CODE='11111111111111111111111111111111';
-let current=null,signer=null,previewRecord=null,pendingTarget=null,working=false,library=null,compilerSetupBusy=false,compilerBuildBusy=false,jsSetupBusy=false,jsBuildBusy=false,isolateBusy=false,editorProject=null,editorLoaded=null;
+let current=null,signer=null,previewRecord=null,working=false,library=null,compilerSetupBusy=false,compilerBuildBusy=false,jsSetupBusy=false,jsBuildBusy=false,isolateBusy=false,editorProject=null,editorLoaded=null;
+const attemptedTargets=new Set();
 function invalidate(){previewRecord=null;}
 const result=(code,data)=>({ok:true,data});
 function safeError(e){
@@ -22,27 +24,49 @@ function safeError(e){
 }
 function bind(name,handler){
  ipcMain.handle('forge:'+name,async(event,data)=>{
+  let guarded=false;
   try{
    if(event.sender.getURL()!==require('node:url').pathToFileURL(path.join(__dirname,'index.html')).toString())
-      throw Error('Untrusted application window.');
+    throw Error('Untrusted application window.');
+   if(networkOperationNames.has(name)){
+    if(switchingNetwork)throw Error('Network change in progress. Try again after it finishes.');
+    networkOperations++;guarded=true;
+   }
    return {ok:true,data:await handler(data,event)};
   }catch(e){return {ok:false,error:safeError(e)}}
+  finally{if(guarded)networkOperations--;}
  });
 }
 async function api(){return import('near-api-js');}
-async function rpc(method,params){
- const res=await fetch(RPC,{method:'POST',redirect:'error',headers:{'content-type':'application/json'},
+async function rpc(method,params,selected=activeNetwork){
+ const chain=networkConfig(selected);
+ const res=await fetch(chain.rpc,{method:'POST',redirect:'error',headers:{'content-type':'application/json'},
    signal:AbortSignal.timeout(30000),body:JSON.stringify({jsonrpc:'2.0',id:'nearium-forge',method,params})});
- if(!res.ok)throw Error('NEAR Testnet RPC HTTP '+res.status);
+ if(!res.ok)throw Error(chain.label+' RPC HTTP '+res.status);
  const json=await res.json();
  if(json.error){const error=Error(json.error?.message||'NEAR RPC error');
    error.rpcName=json.error?.cause?.name||json.error?.name;throw error;}
  return json.result;
 }
-async function network(){
- const s=await rpc('status',[]);
- if(s.chain_id!=='testnet')throw Error('RPC chain mismatch. Nearium Forge alpha cannot use mainnet.');
- return {network:'testnet',blockHeight:s.sync_info?.latest_block_height??null};
+async function network(selected=activeNetwork){
+ const chain=networkConfig(selected);
+ const s=await rpc('status',[],selected);
+ if(s?.chain_id!==chain.id)throw Error('RPC chain mismatch. Refusing to connect to an unexpected network.');
+ return {network:chain.id,blockHeight:s.sync_info?.latest_block_height??null,rpc:chain.rpc};
+}
+async function selectNetwork(requested){
+ const chain=networkConfig(requested);
+ if(working||networkOperations||switchingNetwork||compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy||isolateBusy)
+  throw Error('Finish the current operation before switching blockchain networks.');
+ switchingNetwork=true;
+ try{
+  const checked=await network(chain.id);
+  if(chain.id!==activeNetwork){
+   signer=null;invalidate();activeNetwork=chain.id;
+   // Attempted targets remain blocked for this session even across network changes.
+  }
+  return {...checked,signerDisconnected:true};
+ }finally{switchingNetwork=false;}
 }
 async function queryAccount(id){
  try{return await rpc('query',{request_type:'view_account',finality:'final',account_id:id});}
@@ -50,33 +74,33 @@ async function queryAccount(id){
 }
 async function price(){
  const p=await rpc('EXPERIMENTAL_protocol_config',{finality:'final'});
- if(p.chain_id!=='testnet')throw Error('Protocol config returned the wrong network.');
+ if(p.chain_id!==activeNetwork)throw Error('Protocol config returned the wrong network.');
  const n=p.runtime_config?.storage_amount_per_byte;
- if(!n||!/^\\d+$/.test(String(n)))throw Error('Testnet storage price unavailable.');
+ if(!n||!/^\\d+$/.test(String(n)))throw Error('Network storage price unavailable.');
  return BigInt(n);
 }
 async function importKey({owner,secret}){
  if(compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy||isolateBusy)throw Error('Compiler active. Disconnect signer until compilation is complete.');
  if(working)throw Error('Deployment in progress. Do not change the signer.');
- owner=accountId(owner);
+ owner=accountId(owner,activeNetwork);
  if(typeof secret!=='string'||secret.length>512||!/^ed25519:[1-9A-HJ-NP-Za-km-z]{70,110}$/.test(secret.trim()))
-  throw Error('Use a dedicated NEAR Testnet exported ed25519 private key. Do not enter a seed phrase.');
+  throw Error('Use an exported FullAccess ed25519 private key for the selected network. Never enter a seed phrase.');
  const {Account,JsonRpcProvider,KeyPairSigner}=await api();
  const key=KeyPairSigner.fromSecretKey(secret.trim());
  const publicKey=await key.getPublicKey();
  await network();
  const auth=await rpc('query',{request_type:'view_access_key',finality:'final',account_id:owner,public_key:publicKey.toString()});
- if(auth.permission!=='FullAccess')throw Error('This key is not a FullAccess key on that Testnet account.');
+ if(auth.permission!=='FullAccess')throw Error('This key is not a FullAccess key on that '+activeNetwork+' account.');
  const state=await queryAccount(owner);
- signer={owner,publicKey,account:new Account(owner,new JsonRpcProvider({url:RPC}),key)};
+ signer={owner,network:activeNetwork,publicKey,account:new Account(owner,new JsonRpcProvider({url:networkConfig(activeNetwork).rpc}),key)};
  invalidate();
- return {owner,publicKey:publicKey.toString(),balance:fmt(BigInt(state?.amount||'0'))};
+ return {owner,network:activeNetwork,publicKey:publicKey.toString(),balance:fmt(BigInt(state?.amount||'0'))};
 }
 async function importKeyFile(owner){
  if(compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy||isolateBusy)throw Error('Compiler active.');
  if(working)throw Error('Deployment in progress.');
- accountId(owner);
- const choice=await dialog.showOpenDialog({title:'Select a testnet-only NEAR key file',properties:['openFile'],
+ accountId(owner,activeNetwork);
+ const choice=await dialog.showOpenDialog({title:'Select a '+activeNetwork+' NEAR key file',properties:['openFile'],
    filters:[{name:'NEAR credentials',extensions:['json','txt']}]});
  if(choice.canceled)return {cancelled:true};
  const filename=choice.filePaths[0];
@@ -86,6 +110,7 @@ async function importKeyFile(owner){
  if(text.startsWith('{')){
   const obj=JSON.parse(text);
   if(obj.account_id&&obj.account_id!==owner)throw Error('Credential file account does not match.');
+   if((obj.network_id||obj.network)&&(obj.network_id||obj.network)!==activeNetwork)throw Error('Credential file network does not match the selected network.');
   key=obj.private_key||obj.secret_key;
  }
  return importKey({owner,secret:key});
@@ -354,6 +379,7 @@ async function isolatedBuild(data,event){
 }
 async function preflight(data){
  if(compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy||isolateBusy)throw Error('Compiler is active.');
+ if(data?.network!==activeNetwork)throw Error('Deployment network differs from the active network. Reselect and run preflight.');
  await network();
  if(!current)throw Error('Import or compile a NEAR-compatible WASM contract first.');
  if(current.provenance?.sourceSha256){
@@ -365,13 +391,14 @@ async function preflight(data){
     throw Error('Source files changed after the selected WASM was compiled. Recompile before deployment.');
   }finally{await rm(snapshot.stage,{recursive:true,force:true}).catch(()=>{});}
  }
- if(!signer)throw Error('Connect a dedicated FullAccess Testnet key locally.');
+ if(!signer)throw Error('Connect a FullAccess '+activeNetwork+' key locally.');
+ if(signer.network!==activeNetwork)throw Error('Signer belongs to a different blockchain network.');
  const storageCost=await price();
  const p=plan(data,current.bytes,storageCost);
- if(signer.owner!==p.signer)throw Error('Signer does not match the selected account.');
+ if(signer.owner!==p.signer||p.network!==activeNetwork)throw Error('Signer or deployment network does not match.');
  if(p.mode==='existing'&&p.keyMode==='keyless')throw Error('Keyless is supported only for new child accounts.');
  const [target,owner]=await Promise.all([queryAccount(p.target),queryAccount(p.signer)]);
- if(!owner)throw Error('Signer account is missing on NEAR Testnet.');
+ if(!owner)throw Error('Signer account is missing on NEAR '+activeNetwork+'.');
  const auth=await rpc('query',{request_type:'view_access_key',finality:'final',account_id:p.signer,public_key:signer.publicKey.toString()});
  if(auth.permission!=='FullAccess')throw Error('The connected key no longer has full access.');
  const {baseEncode}=await api();
@@ -401,8 +428,8 @@ async function check(data){
  if(working)throw Error('Deployment is in progress.');
  const details=await preflight(data);
  const token=randomUUID();
- previewRecord={token,signature:JSON.stringify(data),hash:current.hash,owner:signer.owner,target:details.p.target};
- return {token,target:details.p.target,owner:details.p.signer,upgrade:details.upgrade,
+ previewRecord={token,signature:JSON.stringify(data),hash:current.hash,owner:signer.owner,target:details.p.target,network:activeNetwork};
+ return {token,network:activeNetwork,target:details.p.target,owner:details.p.signer,upgrade:details.upgrade,
    existingCodeHash:details.existingCodeHash,actions:details.actions,
    artifact:details.artifact,spendable:details.spendable,required:details.required,
    keyMode:details.p.keyMode,init:details.p.init.method||'none'};
@@ -413,32 +440,39 @@ async function deploy(data,event){
  working=true;let attempted=false;
  try{
   if(!data?.ack)throw Error('Review and acknowledge deployment risks first.');
+  if(data?.config?.network!==activeNetwork)throw Error('Active network changed. Run preflight again.');
+  if(activeNetwork==='mainnet'&&(!data.ackMainnet||data.confirmNetwork!=='MAINNET'))
+   throw Error('Mainnet requires the additional real-funds acknowledgment and exact MAINNET confirmation.');
   if(!previewRecord||data.token!==previewRecord.token||JSON.stringify(data.config)!==previewRecord.signature)
     throw Error('Configuration changed. Re-run Preflight before deploying.');
   const report=await preflight(data.config);
   const p=report.p;
   if(report.upgrade&&!data.ackMigration)throw Error('Explicitly acknowledge stored-state migration risks before upgrading an existing contract.');
   if(data.confirm!==p.target)throw Error('Type the exact contract address to approve.');
-  if(p.target!==previewRecord.target||signer.owner!==previewRecord.owner||current.hash!==previewRecord.hash)
+  if(p.target!==previewRecord.target||signer.owner!==previewRecord.owner||current.hash!==previewRecord.hash||previewRecord.network!==activeNetwork||signer.network!==activeNetwork)
     throw Error('Signer, contract or target changed. Re-run Preflight.');
-  if(pendingTarget===p.target)throw Error('This target has a prior deployment attempt this session. Inspect receipts before doing anything else.');
+  if(attemptedTargets.has(activeNetwork+':'+p.target))throw Error('This target has a prior deployment attempt on this network this session. Inspect receipts before retrying.');
   const parent=BrowserWindow.fromWebContents(event.sender);
   if(!parent)throw Error('Cannot display native Windows confirmation.');
-  const selection=await dialog.showMessageBox(parent,{title:'Nearium Forge · Sign Testnet Deployment',type:'warning',
-    buttons:['Cancel','Deploy Contract'],defaultId:0,cancelId:0,noLink:true,
-    message:(report.upgrade?'Replace code on ':'Deploy to ')+p.target+'?',
-    detail:'NETWORK: NEAR TESTNET\nPREVIOUS CODE HASH: '+(report.existingCodeHash||'none')+'\nNEW WASM SHA-256: '+p.wasmHash+'\nBUILD MODE: '+(current.provenance?.mode||'imported / unverified')+'\nSTORAGE MIGRATION: NOT AUTOMATIC'+
+  const mainnet=activeNetwork==='mainnet';
+  const selection=await dialog.showMessageBox(parent,{title:mainnet?'Nearium Forge · MAINNET REAL FUNDS':'Nearium Forge · Sign Testnet Deployment',type:'warning',
+    buttons:['Cancel',mainnet?'DEPLOY ON MAINNET':'Deploy Contract'],defaultId:0,cancelId:0,noLink:true,
+    message:(mainnet?'REAL NEAR / MAINNET: ':'')+(report.upgrade?'Replace code on ':'Deploy to ')+p.target+'?',
+    detail:'NETWORK: '+networkConfig(activeNetwork).label.toUpperCase()+(mainnet?' — REAL FUNDS, IRREVERSIBLE TRANSACTION':'')+
+      '\nRPC: '+networkConfig(activeNetwork).rpc+
+      '\nPREVIOUS CODE HASH: '+(report.existingCodeHash||'none')+'\nNEW WASM SHA-256: '+p.wasmHash+
+      '\nBUILD MODE: '+(current.provenance?.mode||'imported / unverified')+'\nSTORAGE MIGRATION: NOT AUTOMATIC'+
       '\nACTIONS:\n'+report.actions.map(x=>'  • '+x).join('\n')+
       '\n\nPrivate signing stays on this computer. Failed transactions may create or leave a funded account. Do not retry blindly.'});
   if(selection.response!==1)return {cancelled:true};
   // Explicitly recheck after UI approval. No transaction sent yet.
   const fresh=await preflight(data.config);
-  if(fresh.p.target!==p.target)throw Error('Target changed after approval.');
+  if(fresh.p.target!==p.target||fresh.p.network!==activeNetwork)throw Error('Target or network changed after approval.');
   const {actions}=await api();
   const list=actionsFor(actions,current.bytes,p,signer.publicKey);
   previewRecord=null;
   attempted=true;
-  pendingTarget=p.target;
+  attemptedTargets.add(activeNetwork+':'+p.target);
   // retries=0 is vital for create-account transactions, no automatic resubmission.
   const tx=await signer.account.signAndSendTransaction({
     receiverId:p.target,actions:list,retries:0,waitUntil:'FINAL',throwOnFailure:false
@@ -454,24 +488,24 @@ async function deploy(data,event){
   const failed=Boolean(tx?.status?.Failure);
   // Successful status doesn't prove contract initialization is semantically correct.
   const verified=Boolean(!failed&&hashMatches&&keyValid);
-  return {cancelled:false,target:p.target,txHash,codeHash:account?.code_hash||null,
+  return {cancelled:false,network:activeNetwork,target:p.target,txHash,codeHash:account?.code_hash||null,
    expectedCodeHash:expected,hashMatches,keyCount,verified,failed,
    warning:verified?'Code hash and access-key checks passed. Review any initialization receipts separately.':
    'Execution or post-deployment checks need review. Do not retry without investigating receipts.'};
  }catch(e){
-  if(attempted)throw Error('Submission/verification is uncertain: '+safeError(e)+'. Check testnet explorer BEFORE another attempt.');
+  if(attempted)throw Error('Submission/verification is uncertain: '+safeError(e)+'. Check the selected network explorer BEFORE another attempt.');
   throw e;
  }finally{working=false;previewRecord=null}
 }
 async function inspectContract(value){
  await network();
- const id=accountId(value);
+ const id=accountId(value,activeNetwork);
  const state=await queryAccount(id);
- if(!state)return {account:id,exists:false};
+ if(!state)return {account:id,network:activeNetwork,exists:false};
  const keys=await rpc('query',{request_type:'view_access_key_list',finality:'final',account_id:id});
  const apiInstance=await api();
  const expected=current?apiInstance.baseEncode(createHash('sha256').update(current.bytes).digest()):null;
- return {account:id,exists:true,codeHash:state.code_hash,keys:keys.keys?.length??null,
+ return {account:id,network:activeNetwork,exists:true,codeHash:state.code_hash,keys:keys.keys?.length??null,
   balance:fmt(BigInt(state.amount)),storageUsage:state.storage_usage,
   expectedCodeHash:expected,matchesImported:expected?state.code_hash===expected:null};
 }
@@ -489,6 +523,7 @@ async function selectSaved(id){
 }
 function register(){
  bind('network',network);
+ bind('set-network',selectNetwork);
  bind('inspect',inspectContract);
  bind('open-wasm',openWasm);
  bind('compile-rust',compileRust);

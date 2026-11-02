@@ -46,3 +46,15 @@ test('funding bound includes storage estimate',()=>{
  a.throws(()=>c.plan({...base,funding:'0.1'},b,price));
  a.throws(()=>c.plan({...base,funding:'999'},b,price));
 });
+
+test('mainnet account validation and new-contract plans are network-specific',()=>{
+ a.equal(c.accountId('alice.near','mainnet'),'alice.near');
+ a.equal(c.childAccount('alice.near','token','mainnet'),'token.alice.near');
+ for(const name of ['alice.testnet','alice.near.extra','alice..near','ABC.near'])a.throws(()=>c.accountId(name,'mainnet'));
+ a.throws(()=>c.accountId('alice.near','testnet'));
+ a.throws(()=>c.networkConfig('unknown'));
+ a.equal(c.networkConfig('mainnet').rpc,'https://rpc.mainnet.fastnear.com');
+ const p=c.plan({...base,network:'mainnet',owner:'alice.near',initArgs:'{}'},b,price);
+ a.equal(p.network,'mainnet');a.equal(p.target,'demo.alice.near');
+ a.throws(()=>c.plan({...base,network:'mainnet'},b,price));
+});

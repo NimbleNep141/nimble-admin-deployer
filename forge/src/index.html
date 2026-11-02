@@ -6,7 +6,7 @@
 <div class="app-shell">
 <header class="topbar">
   <div class="brand"><div class="brand-mark"><img class="brand-logo" src="./assets/nearium-forge-logo.png" alt="Nearium Forge logo"/></div><div class="brand-type"><b>NEARIUM <em>FORGE</em></b><small>SMART CONTRACT DEPLOYMENT STUDIO</small></div></div>
-  <div class="top-right"><span class="env-pill"><span class="live-dot"></span> NEAR TESTNET</span><span class="top-divider"></span><span class="version">DESKTOP ALPHA v0.4.0</span></div>
+  <div class="top-right"><span class="env-pill" id="env-label"><span class="live-dot"></span> NEAR TESTNET</span><span class="top-divider"></span><span class="version">DESKTOP BETA v0.5.0</span></div>
 </header>
 <div id="home" class="page">
   <div class="home-hero">
@@ -22,7 +22,7 @@
       <div class="orbit orbit-1"></div><div class="orbit orbit-2"></div><div class="orbit orbit-3"></div>
       <div class="glow-sphere"></div><div class="forge-core logo-core"><img class="hero-logo" src="./assets/nearium-forge-logo.png" alt=""/></div>
       <div class="floating floating-a"><i>◈</i><span>CONTRACT VERIFIED<small>SHA-256 · MATCHED</small></span><b>✓</b></div>
-      <div class="floating floating-b"><i>⌘</i><span>DEPLOYMENT ENGINE<small>TESTNET READY</small></span><b class="green-led"></b></div>
+      <div class="floating floating-b"><i>⌘</i><span>DEPLOYMENT ENGINE<small>DUAL-NETWORK READY</small></span><b class="green-led"></b></div>
       <div class="particle pt1"></div><div class="particle pt2"></div><div class="particle pt3"></div><div class="particle pt4"></div>
     </div>
   </div>
@@ -34,7 +34,7 @@
       <div class="feature"><div class="feature-icon blue">◎</div><span>03 / CONFIRM</span><h3>Verify</h3><p>Inspect on-chain code hashes, access keys, account balances and transaction results before your next move.</p></div>
     </div>
   </div>
-  <div class="landing-footer"><span>TESTNET-FIRST. SECURITY BY DESIGN.</span><span>BUILT FOR THE NEAR ECOSYSTEM <b>✦</b></span></div>
+  <div class="landing-footer"><span>TESTNET FIRST · MAINNET REQUIRES EXPLICIT APPROVAL.</span><span>BUILT FOR THE NEAR ECOSYSTEM <b>✦</b></span></div>
 </div>
 <div id="studio" class="page" hidden>
   <div class="workspace">
@@ -45,7 +45,7 @@
       <button class="nav-link" data-view="verify"><span class="nav-icon">◎</span> Verify On-chain</button>
       <button class="nav-link" data-view="build"><span class="nav-icon">⌘</span> Compile / Import</button>
       <div class="sidebar-rule"></div><div class="sidebar-label">ENVIRONMENT</div>
-      <div class="side-metric"><span>Network</span><b>NEAR Testnet</b></div>
+      <div class="side-metric"><span>Network</span><b id="mini-network">NEAR Testnet</b></div>
       <div class="side-metric"><span>Contract</span><b id="mini-wasm">None selected</b></div>
       <div class="side-metric"><span>Signer</span><b id="mini-signer">Not connected</b></div>
       <div class="sidebar-bottom">
@@ -56,11 +56,12 @@
       </div>
     </aside>
     <main class="workspace-main">
-      <div class="workspace-toolbar"><div><span class="crumb">NEARIUM <span>/</span> FORGE <span>/</span> <b id="crumb-page">DEPLOY</b></span><h2 id="workspace-title">Deployment Studio</h2><p id="workspace-desc">A precision workflow from compiled bytecode to verified contract.</p></div><div class="toolbar-stats"><span class="tiny-square"></span><span id="network-status">Testnet connection unchecked</span></div></div>
+      <div class="workspace-toolbar"><div><span class="crumb">NEARIUM <span>/</span> FORGE <span>/</span> <b id="crumb-page">DEPLOY</b></span><h2 id="workspace-title">Deployment Studio</h2><p id="workspace-desc">A precision workflow from compiled bytecode to verified contract.</p></div><div class="toolbar-stats"><label for="network-select">NETWORK</label><select id="network-select" aria-label="Active NEAR blockchain network"><option value="testnet">Testnet · Test NEAR</option><option value="mainnet">Mainnet · REAL NEAR</option></select><span class="tiny-square"></span><span id="network-status">Testnet connection unchecked</span></div></div>
       <div id="notice" class="notice" hidden role="status" aria-live="polite"></div>
+       <div id="mainnet-warning" class="mainnet-warning" hidden><b>LIVE NEAR MAINNET · REAL FUNDS</b><span>Transactions spend real NEAR and cannot be undone. Verify your contract and account; use a dedicated, limited-balance FullAccess key.</span></div>
 
       <section class="workspace-view" id="view-deploy">
-        <div class="compact-bar"><div class="bar-avatar">⌘</div><div><b>Deployment pipeline</b><span id="pipeline-hint">Import a contract, connect your account, then run preflight.</span></div><div class="bar-label">TESTNET BUILD</div></div>
+        <div class="compact-bar"><div class="bar-avatar">⌘</div><div><b>Deployment pipeline</b><span id="pipeline-hint">Import a contract, connect your account, then run preflight.</span></div><div class="bar-label" id="pipeline-network">TESTNET MODE</div></div>
         <div class="two-col">
           <div class="stack">
             <div class="panel">
@@ -71,10 +72,10 @@
             </div>
             <div class="panel">
               <div class="panel-title"><div><span class="step-index">02</span><b>Local signer</b></div><span id="signer-status" class="status-dot neutral">DISCONNECTED</span></div>
-              <label for="owner">Testnet account address</label><input id="owner" type="text" autocomplete="off" spellcheck="false" placeholder="youraccount.testnet"/>
-              <label for="secret">Full-access testnet private key (session only)</label><div class="secret-wrap"><input id="secret" type="password" autocomplete="off" spellcheck="false" placeholder="ed25519:..."/><button id="toggle-secret" type="button" class="secret-toggle" aria-label="Show or hide key">◉</button></div>
+              <label for="owner" id="owner-label">Testnet account address</label><input id="owner" type="text" autocomplete="off" spellcheck="false" placeholder="youraccount.testnet"/>
+              <label for="secret" id="secret-label">Full-access testnet private key (session only)</label><div class="secret-wrap"><input id="secret" type="password" autocomplete="off" spellcheck="false" placeholder="ed25519:..."/><button id="toggle-secret" type="button" class="secret-toggle" aria-label="Show or hide key">◉</button></div>
               <div class="buttons"><button id="key-connect" class="button button-outline">Connect Local Key</button><button id="key-file" class="button button-outline">Choose Key File</button><button id="key-disconnect" class="button button-quiet">Disconnect</button></div>
-              <p class="field-info" id="signer-detail">Use a separate disposable testnet account. Never use a recovery phrase or mainnet key.</p>
+              <p class="field-info" id="signer-detail">Use a disposable Testnet account. Never enter a recovery phrase.</p>
             </div>
           </div>
           <div class="stack">
@@ -97,12 +98,13 @@
         </div>
         <div class="panel action-panel">
           <div class="panel-title"><div><span class="step-index">04</span><b>Preflight & transaction review</b></div><span id="preflight-status" class="status-dot neutral">NOT CHECKED</span></div>
-          <div class="action-split"><div><p class="field-info">Inspect target existence, available balance, contract hash and signer permissions before authorizing a real Testnet transaction.</p><button id="preflight" class="button button-mint button-large">Run Preflight Check <span>↗</span></button></div><div class="review-box" id="preflight-output">Your transaction preview will appear here. Nothing is submitted until you approve the native Windows dialog.</div></div>
+          <div class="action-split"><div><p class="field-info">Inspect target existence, available balance, contract hash and signer permissions before authorizing a transaction on <b id="preflight-network-label">Testnet</b>.</p><button id="preflight" class="button button-mint button-large">Run Preflight Check <span>↗</span></button></div><div class="review-box" id="preflight-output">Your transaction preview will appear here. Nothing is submitted until you approve the native Windows dialog.</div></div>
           <div class="confirm-grid">
             <div><label for="confirmation">Confirm full target account address</label><input id="confirmation" placeholder="Type the exact target after preflight" autocomplete="off" spellcheck="false"/></div>
             <div class="confirm-right"><label class="checkbox-row"><input id="ack" type="checkbox"/> I have reviewed the target, actions, code and risks.</label><button id="deploy" class="button button-glow button-large" disabled>Deploy Contract <span>↗</span></button></div>
           </div>
-          <div class="deploy-hint" id="deploy-hint">Run preflight before deploying.</div>
+          <div id="mainnet-gate" class="mainnet-gate" hidden><label class="checkbox-row"><input type="checkbox" id="mainnet-ack"/> I understand this deploys to NEAR Mainnet, spends REAL NEAR and cannot be reversed.</label><label for="mainnet-word">Type MAINNET to authorize real-funds deployment</label><input id="mainnet-word" autocomplete="off" spellcheck="false" placeholder="MAINNET"/></div>
+           <div class="deploy-hint" id="deploy-hint">Run preflight before deploying.</div>
           <div class="result-box" id="deployment-result" role="status" aria-live="polite">No deployment transaction submitted in this session.</div>
         </div>
       </section>
@@ -124,10 +126,10 @@
       </section>
 
       <section class="workspace-view" id="view-verify" hidden>
-        <div class="view-top"><span class="view-kicker">ON-CHAIN / READ-ONLY</span><h3>Verify your deployment</h3><p>Inspect any named NEAR testnet account. Compare its deployed code against the currently selected WASM.</p></div>
+        <div class="view-top"><span class="view-kicker">ON-CHAIN / READ-ONLY</span><h3>Verify your deployment</h3><p>Inspect a named NEAR account on the selected network. Compare its deployed code against the currently selected WASM.</p></div>
         <div class="panel"><div class="panel-title"><div><span class="step-index">◎</span><b>Account inspector</b></div><span class="status-dot live">READ ONLY</span></div>
           <label for="verify-address">Contract address</label><input id="verify-address" placeholder="contract.youraccount.testnet" spellcheck="false"/>
-          <button id="verify-button" class="button button-mint">Inspect on NEAR Testnet <span>◎</span></button>
+          <button id="verify-button" class="button button-mint">Inspect Selected Network <span>◎</span></button>
           <div class="review-box spacious" id="verify-output">Enter the address of a deployed contract to check its code hash, access keys, balance, and whether it matches your imported WASM.</div>
         </div>
       </section>
@@ -168,7 +170,7 @@
 </div>
 <div class="panel js-compiler-panel">
   <div class="panel-title"><div><span class="step-index">JS</span><b>JavaScript &amp; TypeScript Builder</b></div><span class="status-dot neutral" id="js-status">EXPERIMENTAL</span></div>
-  <p class="field-info">Build NEAR JS/TS projects with a package.json build script. NEAR's official near-sdk-js contract SDK is archived and deprecated, and its compiler does not support native Windows. Build those contracts under WSL/Linux and import their WASM. Other Windows-compatible npm build scripts remain experimental/testnet only.</p>
+  <p class="field-info">Build NEAR JS/TS projects with a package.json build script. NEAR's official near-sdk-js contract SDK is archived and deprecated, and its compiler does not support native Windows. Build those contracts under WSL/Linux and import their WASM. Other Windows-compatible npm build scripts remain experimental; review results on Testnet before considering Mainnet.</p>
   <div class="compiler-status-grid js-status-grid">
     <div class="compiler-stat"><span>NODE.JS</span><b id="node-state">Not checked</b></div>
     <div class="compiler-stat"><span>DEPENDENCIES</span><b id="js-dependency-state">Open a project</b></div>
