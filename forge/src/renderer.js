@@ -1,7 +1,7 @@
 'use strict';
 const el=id=>document.getElementById(id);
 let active='home',view='deploy',artifact=null,localSigner=null,review=null,working=false,selectedNetwork='testnet';
-let saved=[],deletePending=null,submittedTarget=null,lastDeployment=null;
+let saved=[],deletePending=null,lastDeployment=null,recoveryRecords=[];
 const names={deploy:'Deployment Studio',library:'My Contract Library',verify:'Verify On-chain',build:'Compile / Import'};
 const descriptions={
  deploy:'A precision workflow from compiled bytecode to verified contract.',
@@ -32,6 +32,7 @@ function showView(next){
  document.querySelectorAll('.nav-link').forEach(n=>n.classList.toggle('selected',n.dataset.view===next));
  setText('workspace-title',names[next]);setText('workspace-desc',descriptions[next]);setText('crumb-page',next.toUpperCase());
  if(next==='library')refreshLibrary();
+ if(next==='deploy')refreshRecovery();
  if(next==='build'){refreshCompiler();refreshNodeStatus();refreshIsolationStatus();refreshReproducibleStatus();}
  if(next==='verify'&&!el('verify-address').value.trim())el('verify-address').value=targetId();
 }
@@ -93,8 +94,8 @@ function updateDeploy(){
 }
 function busy(value){
  working=value;
- for(const id of ['wasm-import','rust-compile','wasm-import-build','rust-compile-build','key-connect','key-file','key-disconnect','preflight','save-current','saved-load','saved-delete','saved-refresh','saved-verify','verify-button','deploy','isolated-build','isolated-check','reproducible-check','reproducible-install','upgrade-start','network-select','upgrade-inspect','upgrade-prepare'])el(id).disabled=value;
- if(!value){el('upgrade-start').disabled=!artifact||sourceDirty;updateDeploy();}
+ for(const id of ['wasm-import','rust-compile','wasm-import-build','rust-compile-build','key-connect','key-file','key-disconnect','preflight','save-current','saved-load','saved-delete','saved-refresh','saved-verify','verify-button','deploy','isolated-build','isolated-check','reproducible-check','reproducible-install','upgrade-start','network-select','upgrade-inspect','upgrade-prepare','recovery-refresh','recovery-check','recovery-attach','recovery-release'])el(id).disabled=value;
+ if(!value){el('upgrade-start').disabled=!artifact||sourceDirty;updateDeploy();updateRecovery();}
 }
 function artifactUpdate(meta){
  artifact=meta;lastDeployment=null;
@@ -377,13 +378,11 @@ async function doPreflight(){
 async function doDeploy(){
  if(!review){setResult('Run Preflight first.','error');return;}
  if(!el('ack').checked||el('confirmation').value.trim()!==review.target){setResult('Type the exact account address and acknowledge the risks.','error');return;}
- if(submittedTarget===selectedNetwork+':'+review.target){setResult('This target already had a deployment attempt in this session. Verify blockchain receipts before retrying.','error');return;}
  busy(true);
  setResult('Opening native Windows confirmation. Nothing is signed or sent until you choose Deploy Contract.');
  try{
   const report=await call('deploy',{config:config(),token:review.token,confirm:el('confirmation').value.trim(),ack:true,ackMigration:el('upgrade-ack').checked,upgradeToken:review.upgradeToken,ackMainnet:el('mainnet-ack').checked,confirmNetwork:el('mainnet-word').value.trim()});
   if(report.cancelled){setResult('Cancelled by user. No transaction was submitted.');notify('Deployment cancelled.');return;}
-  submittedTarget=report.network+':'+report.target;
   lastDeployment={network:report.network,address:report.target,txHash:report.txHash,verified:report.verified};
   const status=report.verified?
     (report.keyless?'CONFIRMED · INTENTIONALLY KEYLESS (NO OWNER KEY)':'CONFIRMED · OWNER KEY + RECEIPTS VERIFIED'):
@@ -407,8 +406,88 @@ async function doDeploy(){
     (report.keyless?'Contract code and receipts verified. This account has NO OWNER KEY.':'Expected FullAccess owner key, deployed code, and finalized receipts verified.'):
     'Transaction or ownership verification incomplete. Inspect receipts and do not retry automatically.',!report.verified);
  }catch(e){setResult('DEPLOYMENT DID NOT CONFIRM\n'+e.message+'\nNever retry without verifying account and receipts on NEAR '+selectedNetwork+'.','error');notify(e.message,true)}
- finally{review=null;el('ack').checked=false;el('upgrade-ack').checked=false;display('upgrade-ack-row',false);el('confirmation').value='';el('mainnet-ack').checked=false;el('mainnet-word').value='';busy(false);updateDeploy()}
+ finally{await refreshRecovery();review=null;el('ack').checked=false;el('upgrade-ack').checked=false;display('upgrade-ack-row',false);el('confirmation').value='';el('mainnet-ack').checked=false;el('mainnet-word').value='';busy(false);updateDeploy()}
 }
+function selectedRecovery(){
+ return recoveryRecords.find(r=>r.id===el('recovery-select').value);
+}
+function updateRecovery(){
+ const r=selectedRecovery();
+ el('recovery-check').disabled=working||!r?.txHash;
+ el('recovery-attach').disabled=working||!r||Boolean(r.txHash);
+ el('recovery-release').disabled=working||!r||r.status!=='finalized-failure';
+ if(!r){
+  setText('recovery-detail','No unresolved deployment records. Previously verified successful transactions are archived automatically.');
+  return;
+ }
+ setText('recovery-detail','NETWORK           '+r.network.toUpperCase()+
+  '\nTARGET            '+r.target+
+  '\nSIGNER            '+r.signer+
+  '\nCREATED           '+r.createdAt+
+  '\nSTATUS            '+r.status.toUpperCase()+
+  '\nTX HASH           '+(r.txHash||'NOT RECORDED')+
+  '\nEXPECTED WASM     '+r.wasmSha256+
+  '\nEXPECTED CODE     '+r.expectedCodeHash+
+  '\nLAST CHAIN CHECK  '+(r.lastCheck||'not checked')+
+  '\n\n'+(r.note||'Outcome is uncertain.')+
+  '\n\nTHIS TARGET IS BLOCKED UNTIL INDEPENDENT VERIFICATION OR A REVIEWED, FINALIZED FAILURE.');
+}
+async function refreshRecovery(){
+ try{
+  const previous=el('recovery-select').value;
+  recoveryRecords=await call('recoveryList');
+  const choice=el('recovery-select');
+  while(choice.options.length)choice.remove(0);
+  choice.add(new Option(recoveryRecords.length?'Select a saved attempt':'No unresolved transactions',''));
+  for(const item of recoveryRecords){
+   const label=item.network.toUpperCase()+' · '+item.target+' · '+item.status;
+   choice.add(new Option(label,item.id));
+  }
+  if(recoveryRecords.some(r=>r.id===previous))choice.value=previous;
+  else if(recoveryRecords.length===1)choice.value=recoveryRecords[0].id;
+  setText('recovery-status',recoveryRecords.length?recoveryRecords.length+' NEED REVIEW':'NO PENDING');
+  el('recovery-status').className='status-dot '+(recoveryRecords.length?'error':'live');
+  updateRecovery();
+ }catch(e){
+  setText('recovery-status','CHECK FAILED');el('recovery-status').className='status-dot error';
+  setText('recovery-detail','RECOVERY JOURNAL ERROR: '+e.message+'\nDo not deploy until the journal is inspected.');
+  notify('Cannot load persistent recovery journal: '+e.message,true);
+ }
+}
+async function doReconcileSaved(){
+ const r=selectedRecovery();if(!r)return;
+ busy(true);setText('recovery-detail','Checking finalized transaction and receipts on NEAR '+r.network+'...');
+ try{
+  const result=await call('recoveryReconcile',r.id);
+  notify(result.resolved?'Transaction independently verified and archived. A fresh preflight is still required.':
+   'Recovery checked. The attempt remains blocked: '+result.note,!result.resolved);
+ }catch(e){notify('Recovery failed: '+e.message,true)}
+ finally{busy(false);await refreshRecovery()}
+}
+async function doAttachRecoveredHash(){
+ const r=selectedRecovery();if(!r)return;
+ const hash=el('recovery-hash').value.trim();
+ busy(true);
+ try{
+  const result=await call('recoveryAttach',{id:r.id,hash});
+  el('recovery-hash').value='';
+  notify(result.resolved?'Matching transaction verified and archived.':
+   'Transaction hash attached and independently checked; remaining status: '+result.status,!result.resolved);
+ }catch(e){notify('Transaction hash rejected: '+e.message,true)}
+ finally{busy(false);await refreshRecovery()}
+}
+async function doReviewFailedRecovery(){
+ const r=selectedRecovery();if(!r)return;
+ busy(true);
+ try{
+  const result=await call('recoveryRelease',{id:r.id,typedTarget:el('recovery-target').value.trim()});
+  if(result.cancelled)return;
+  el('recovery-target').value='';
+  notify('Finalized failure archived after explicit review. Inspect the account, then run a NEW preflight if appropriate.');
+ }catch(e){notify('Failed-transaction review blocked: '+e.message,true)}
+ finally{busy(false);await refreshRecovery()}
+}
+
 async function refreshLibrary(){
  try{
   saved=await call('list');
@@ -536,6 +615,9 @@ wire('source-project',openProjectUI);wire('source-save',saveSourceUI);wire('sour
 el('source-file').addEventListener('change',()=>openSourceFile(el('source-file').value));
 el('source-code').addEventListener('input',()=>setSourceDirty(Boolean(sourceFile&&el('source-code').value!==sourceFile.text)));
 wire('preflight',doPreflight);wire('deploy',doDeploy);wire('save-current',saveCurrent);
+wire('recovery-refresh',refreshRecovery);wire('recovery-check',doReconcileSaved);
+wire('recovery-attach',doAttachRecoveredHash);wire('recovery-release',doReviewFailedRecovery);
+el('recovery-select').addEventListener('change',updateRecovery);
 wire('saved-load',loadSaved);wire('saved-delete',deleteSaved);wire('saved-refresh',refreshLibrary);wire('verify-button',verify);
  el('network-select').addEventListener('change',changeNetwork);
 wire('saved-verify',()=>{const entry=saved.find(x=>x.id===el('saved-select').value);if(!entry?.deployment?.address)return;
@@ -563,5 +645,6 @@ async function initialize(){
   const n=await call('network');selectedNetwork=n.network;paintNetwork(n);
  }catch(e){setText('network-status',selectedNetwork+' unavailable');notify('Network check failed: '+e.message,true)}
  await refreshLibrary();
+ await refreshRecovery();
 }
 initialize();

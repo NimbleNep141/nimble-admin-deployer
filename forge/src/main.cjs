@@ -4,6 +4,7 @@ const {readFile,stat,rm}=require('node:fs/promises');
 const path=require('node:path');
 const {randomUUID,createHash}=require('node:crypto');
 const {Library}=require('./library.cjs');
+const {DeploymentJournal,TX}=require('./deployment-journal.cjs');
 const sourceEditor=require('./source-editor.cjs');
 // Metadata parser only. Native Windows Node/npm compiler IPC remains disabled.
 const jsToolchain=require('./js-toolchain.cjs');
@@ -15,10 +16,9 @@ const {verifyDeployment}=require('./deployment-verification.cjs');
 const upgradeSafety=require('./upgrade-safety.cjs');
 
 let activeNetwork='testnet',switchingNetwork=false,networkOperations=0;
-const networkOperationNames=new Set(['network','inspect','import-key','key-file','preflight','deploy','upgrade-context','upgrade-prepare']);
+const networkOperationNames=new Set(['network','inspect','import-key','key-file','preflight','deploy','upgrade-context','upgrade-prepare','recovery-reconcile','recovery-attach','recovery-release']);
 const EMPTY_CODE='11111111111111111111111111111111';
-let current=null,signer=null,previewRecord=null,upgradeReview=null,working=false,library=null,compilerSetupBusy=false,compilerBuildBusy=false,jsSetupBusy=false,jsBuildBusy=false,isolateBusy=false,editorProject=null,editorLoaded=null;
-const attemptedTargets=new Set();
+let current=null,signer=null,previewRecord=null,upgradeReview=null,working=false,library=null,journal=null,compilerSetupBusy=false,compilerBuildBusy=false,jsSetupBusy=false,jsBuildBusy=false,isolateBusy=false,editorProject=null,editorLoaded=null;
 function invalidate(){previewRecord=null;upgradeReview=null;}
 const result=(code,data)=>({ok:true,data});
 function safeError(e){
@@ -307,6 +307,7 @@ async function preflight(data){
  if(!owner)throw Error('Signer account is missing on NEAR '+activeNetwork+'.');
  const auth=await rpc('query',{request_type:'view_access_key',finality:'final',account_id:p.signer,public_key:signer.publicKey.toString()});
  if(auth.permission!=='FullAccess')throw Error('The connected key no longer has full access.');
+ await journal.assertClear(activeNetwork,p.target);
  const {baseEncode}=await api();
  const onchainHash=baseEncode(createHash('sha256').update(current.bytes).digest());
  if(p.mode==='new'&&target)throw Error('Target child account already exists. Cannot overwrite through CreateAccount.');
@@ -433,7 +434,7 @@ async function deploy(data,event){
   if(data.confirm!==p.target)throw Error('Type the exact contract address to approve.');
   if(p.target!==previewRecord.target||signer.owner!==previewRecord.owner||current.hash!==previewRecord.hash||previewRecord.network!==activeNetwork||signer.network!==activeNetwork)
     throw Error('Signer, contract or target changed. Re-run Preflight.');
-  if(attemptedTargets.has(activeNetwork+':'+p.target))throw Error('This target has a prior deployment attempt on this network this session. Inspect receipts before retrying.');
+  await journal.assertClear(activeNetwork,p.target);
   const parent=BrowserWindow.fromWebContents(event.sender);
   if(!parent)throw Error('Cannot display native Windows confirmation.');
   const mainnet=activeNetwork==='mainnet';
@@ -458,13 +459,16 @@ async function deploy(data,event){
   const approvedPublicKey=signer.publicKey.toString();
   const list=actionsFor(actions,current.bytes,p,signer.publicKey);
   previewRecord=null;
+  const entry=await journal.start({network:activeNetwork,target:p.target,signer:p.signer,
+   publicKey:approvedPublicKey,mode:p.mode,keyMode:p.keyMode,initMethod:p.init.method,
+   wasmSha256:p.wasmHash,expectedCodeHash:expected});
   attempted=true;
-  attemptedTargets.add(activeNetwork+':'+p.target);
   // No automatic retries. Do not resubmit if a post-send read or receipt check fails.
   const tx=await signer.account.signAndSendTransaction({
     receiverId:p.target,actions:list,retries:0,waitUntil:'FINAL',throwOnFailure:false
   });
   const txHash=tx?.transaction?.hash||tx?.transaction_outcome?.id||null;
+  if(txHash)await journal.rememberHash(entry,txHash);
   // Independently re-query the canonical transaction including all executed receipts.
   let finalized=null,transactionLookupError=null;
   if(!txHash)transactionLookupError='Submission did not return a transaction hash.';
@@ -489,6 +493,10 @@ async function deploy(data,event){
   if(accountResult.status==='rejected')review.reasons.push('On-chain account lookup failed: '+safeError(accountResult.reason));
   if(keyResult.status==='rejected')review.reasons.push('On-chain access-key lookup failed: '+safeError(keyResult.reason));
   const verified=review.verified&&review.reasons.length===0;
+  if(verified)await journal.complete(entry,'verified-success');
+  else if(finalized?.final_execution_status==='FINAL'&&finalized?.status?.Failure)
+   await journal.note(entry,'finalized-failure','Finalized transaction failed. Partial side effects require manual on-chain inspection.');
+  else await journal.note(entry,'finalized-unverified',review.reasons.join(' ').slice(0,750)||'Finality or action verification incomplete.');
   const warning=verified?
    (review.keyless?'Code and receipts verified. INTENTIONALLY KEYLESS: no owner has a normal access key.':
     'Code, finalized receipt outcomes and expected FullAccess owner key verified.'+
@@ -502,10 +510,116 @@ async function deploy(data,event){
    initializationVerified:review.initializationVerified,receiptCount:review.receiptCount,
    verified,failed:Boolean(finalized?.status?.Failure||tx?.status?.Failure),warning};
  }catch(e){
-  if(attempted)throw Error('Submission/verification is uncertain: '+safeError(e)+'. Check the selected network explorer BEFORE another attempt.');
+  if(attempted)throw Error('Submission/verification is uncertain: '+safeError(e)+'. A durable recovery record remains on disk. Open Transaction Recovery and inspect the blockchain BEFORE another attempt.');
   throw e;
  }finally{working=false;previewRecord=null}
 }
+// Recovery is read-only until a transaction has been independently checked.
+// A successful, fully verified transaction can be archived automatically.
+// A finalized failure requires separate account inspection and explicit approval.
+// No UI or RPC path can discard an unknown or hashless transaction.
+async function recoveryList(){return journal.list();}
+function sameTransaction(tx,record){
+ return tx?.final_execution_status==='FINAL'&&tx?.transaction?.hash===record.txHash&&
+  tx.transaction.signer_id===record.signer&&tx.transaction.receiver_id===record.target&&
+  tx.transaction.public_key===record.publicKey;
+}
+async function reconcileSavedRecord(record){
+ if(!record.txHash){
+  return {...record,note:'No transaction hash was returned before interruption. Inspect the network explorer and signer history. You may attach a matching transaction hash; automatic retries remain blocked.'};
+ }
+ await network(record.network);
+ let finalized;
+ try{
+  finalized=await rpc('tx',{tx_hash:record.txHash,sender_account_id:record.signer,wait_until:'FINAL'},record.network);
+ }catch(e){
+  const updated=await journal.note(record,record.status==='finalized-failure'?'finalized-failure':'submitted',
+   'Transaction not independently available yet: '+safeError(e)+'. The deployment stays blocked.');
+  return {...updated,verified:false};
+ }
+ if(!sameTransaction(finalized,record)){
+  const updated=await journal.note(record,'finalized-unverified',
+   'Finalized transaction identity, signer, target, key, or hash does not match the saved approval.');
+  return {...updated,verified:false};
+ }
+ if(finalized.status?.Failure){
+  const updated=await journal.note(record,'finalized-failure',
+   'The matching transaction reached FINAL with a failure. Earlier receipts may have changed account state. Inspect account and receipts before clearing.');
+  return {...updated,verified:false};
+ }
+ const [accountResult,keyResult]=await Promise.allSettled([
+  rpc('query',{request_type:'view_account',finality:'final',account_id:record.target},record.network),
+  rpc('query',{request_type:'view_access_key_list',finality:'final',account_id:record.target},record.network)
+ ]);
+ const check=verifyDeployment({
+  tx:finalized,txHash:record.txHash,signer:record.signer,target:record.target,
+  publicKey:record.publicKey,mode:record.mode,keyMode:record.keyMode,
+  initMethod:record.initMethod,account:accountResult.status==='fulfilled'?accountResult.value:null,
+  keys:keyResult.status==='fulfilled'?keyResult.value:null,
+  expectedCodeHash:record.expectedCodeHash
+ });
+ if(accountResult.status==='rejected')check.reasons.push('Account lookup failed: '+safeError(accountResult.reason));
+ if(keyResult.status==='rejected')check.reasons.push('Key lookup failed: '+safeError(keyResult.reason));
+ if(check.verified&&check.reasons.length===0){
+  await journal.complete(record,'verified-success');
+  return {...record,status:'verified-success',resolved:true,
+   note:'Matching finalized transaction, receipts, deployed WASM, and owner access keys independently verified. Archived safely.'};
+ }
+ const updated=await journal.note(record,'finalized-unverified',
+  check.reasons.join(' ').slice(0,750)||'The transaction has not passed complete on-chain verification.');
+ return {...updated,verified:false};
+}
+async function recoveryReconcile(id){
+ if(working||isolateBusy)throw Error('Finish the current operation before reconciling a deployment.');
+ working=true;
+ try{return await reconcileSavedRecord(await journal.byId(id));}
+ finally{working=false;}
+}
+async function recoveryAttachHash({id,hash}={}){
+ if(working||isolateBusy)throw Error('Finish the current operation first.');
+ if(typeof hash!=='string'||!TX.test(hash))throw Error('Enter a valid NEAR transaction hash.');
+ working=true;
+ try{
+  const record=await journal.byId(id);
+  if(record.txHash)throw Error('A transaction hash is already recorded. It cannot be silently replaced.');
+  await network(record.network);
+  const tx=await rpc('tx',{tx_hash:hash,sender_account_id:record.signer,wait_until:'FINAL'},record.network);
+  // The hash is not committed until its finalized transaction matches the
+  // original signer, target, and signing key. Wrong hashes cannot unlock.
+  if(!sameTransaction(tx,{...record,txHash:hash}))
+   throw Error('Transaction hash not FINAL or identity does not match the saved deployment. Nothing was changed.');
+  const saved=await journal.rememberHash(record,hash);
+  return await reconcileSavedRecord(saved);
+ }finally{working=false;}
+}
+async function recoveryReleaseFailure(data,event){
+ if(working||isolateBusy)throw Error('Finish the current operation first.');
+ working=true;
+ try{
+  const record=await journal.byId(data?.id);
+  if(record.status!=='finalized-failure'||!record.txHash||data?.typedTarget!==record.target)
+   throw Error('Only a matching, independently finalized failure can be manually acknowledged. Type the exact target account.');
+  await network(record.network);
+  const tx=await rpc('tx',{tx_hash:record.txHash,sender_account_id:record.signer,wait_until:'FINAL'},record.network);
+  if(!sameTransaction(tx,record)||!tx.status?.Failure)
+   throw Error('The transaction failure was not independently confirmed. Recovery remains blocked.');
+  const parent=BrowserWindow.fromWebContents(event.sender);
+  if(!parent)throw Error('Native Windows confirmation is unavailable.');
+  const answer=await dialog.showMessageBox(parent,{
+   title:'Review Finalized Failed NEAR Deployment',type:'warning',
+   buttons:['Cancel','I Reviewed the Failed Transaction'],defaultId:0,cancelId:0,noLink:true,
+   message:'Archive this independently confirmed FAILED transaction?',
+   detail:'NETWORK: '+record.network.toUpperCase()+'\nTARGET: '+record.target+
+    '\nTX: '+record.txHash+
+    '\n\nA FAILED transaction may have partially changed the account. You must personally inspect every receipt, code hash, access key, and remaining balance. This only clears the local retry guard after FINAL failure; it does NOT approve another deployment. Any future attempt requires a fresh preflight and native Windows confirmation.'
+  });
+  if(answer.response!==1)return {cancelled:true};
+  const archived=await journal.complete(record,'reviewed-finalized-failure');
+  invalidate();
+  return {...archived,resolved:true};
+ }finally{working=false;}
+}
+
 async function inspectContract(value){
  await network();
  const id=accountId(value,activeNetwork);
@@ -557,13 +671,18 @@ function register(){
  bind('upgrade-context',upgradeContext);
  bind('upgrade-prepare',prepareUpgrade);
  bind('deploy',deploy);
+ bind('recovery-list',recoveryList);
+ bind('recovery-reconcile',recoveryReconcile);
+ bind('recovery-attach',recoveryAttachHash);
+ bind('recovery-release',recoveryReleaseFailure);
  bind('library-list',()=>library.list());
  bind('library-save',saveContract);
  bind('library-load',selectSaved);
  bind('library-delete',async id=>{if(working)throw Error('Deployment in progress.');return library.delete(id)});
 }
 app.whenReady().then(async()=>{
- library=new Library(app.getPath('userData'));await library.init();register();
+ library=new Library(app.getPath('userData'));await library.init();
+ journal=new DeploymentJournal(app.getPath('userData'));await journal.init();register();
  session.defaultSession.setPermissionRequestHandler((_web,permission,done)=>done(false));
  session.defaultSession.webRequest.onBeforeRequest({urls:['https://*/*','http://*/*']},(_request,done)=>done({cancel:true}));
  const win=new BrowserWindow({width:1190,height:880,minWidth:870,minHeight:680,backgroundColor:'#070e17',

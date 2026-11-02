@@ -32,7 +32,8 @@ test('existing account mode cannot deploy to a different owner',()=>{
 test('real funds have independent mainnet approval and network-specific attempt guard',()=>{
  assert.match(source,/data\.ackMainnet/);
  assert.match(source,/data\.confirmNetwork!=='MAINNET'/);
- assert.match(source,/attemptedTargets\.add\(activeNetwork\+':'\+p.target\)/);
+ assert.match(source,/await journal\.start\(/);
+ assert.match(source,/await journal\.assertClear\(activeNetwork,p\.target\)/);
  const html=require('node:fs').readFileSync(require('node:path').join(__dirname,'../src/index.html'),'utf8');
  for(const id of ['network-select','mainnet-gate','mainnet-ack','mainnet-word','mainnet-warning'])assert.ok(html.includes('id="'+id+'"'));
 });
