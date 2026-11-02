@@ -1,6 +1,6 @@
 'use strict';
 const el=id=>document.getElementById(id);
-let active='home',view='deploy',artifact=null,localSigner=null,review=null,working=false;
+let active='home',view='deploy',artifact=null,localSigner=null,review=null,working=false,selectedNetwork='testnet';
 let saved=[],deletePending=null,submittedTarget=null,lastDeployment=null;
 const names={deploy:'Deployment Studio',library:'My Contract Library',verify:'Verify On-chain',build:'Compile / Import'};
 const descriptions={
@@ -37,16 +37,16 @@ function showView(next){
 }
 function targetId(){
  const owner=el('owner').value.trim(),prefix=el('prefix').value.trim(),mode=el('mode').value;
- if(!owner.endsWith('.testnet'))return '';
+ if(!owner.endsWith(selectedNetwork==='mainnet'?'.near':'.testnet'))return '';
  return mode==='new'?prefix+'.'+owner:owner;
 }
 function modeUpdate(){
  const isNew=el('mode').value==='new';
  display('child-options',isNew);display('existing-options',!isNew);
- setText('target',targetId()||'Enter a valid owner.testnet account');
+ setText('target',targetId()||'Enter a valid '+selectedNetwork+' account');
 }
 function config(){
- return {owner:el('owner').value.trim(),mode:el('mode').value,
+ return {network:selectedNetwork,owner:el('owner').value.trim(),mode:el('mode').value,
   prefix:el('prefix').value.trim(),funding:el('funding').value.trim(),
   keyMode:el('key-mode').value,replace:el('replace-code').checked,
   initMethod:el('init-method').value.trim(),initArgs:el('init-args').value.trim(),
@@ -62,21 +62,23 @@ function updateDeploy(){
  const exact=Boolean(review&&el('confirmation').value.trim()===review.target);
  const ack=el('ack').checked;
  const migrationReady=!review?.upgrade||el('upgrade-ack').checked;
- const enabled=!working&&Boolean(review)&&exact&&ack&&migrationReady;
+ const mainnetReady=selectedNetwork!=='mainnet'||(el('mainnet-ack').checked&&el('mainnet-word').value.trim()==='MAINNET');
+ const enabled=!working&&Boolean(review)&&review.network===selectedNetwork&&exact&&ack&&migrationReady&&mainnetReady;
  el('deploy').disabled=!enabled;
  const hint=working?'An operation is in progress. Do not submit again.':
    !artifact?'Import a contract WASM or compile a Rust project first.':
-   !localSigner?'Connect a locally authorized testnet signing key first.':
+   !localSigner?'Connect a locally authorized '+selectedNetwork+' signing key first.':
    !review?'Run Preflight Check to verify target and build the transaction preview.':
    !exact?'Type the exact target address from the preflight results.':
    !ack?'Check the transaction review and acknowledgment box.':
    !migrationReady?'Review and acknowledge state migration risks before replacing this contract.':
+    !mainnetReady?'Check real-funds approval and type MAINNET exactly.':
    'Ready. The next step is a native Windows confirmation; Cancel is the default.';
  setText('deploy-hint',hint);
 }
 function busy(value){
  working=value;
- for(const id of ['wasm-import','rust-compile','wasm-import-build','rust-compile-build','key-connect','key-file','key-disconnect','preflight','save-current','saved-load','saved-delete','saved-refresh','saved-verify','verify-button','deploy','isolated-build','isolated-check','upgrade-start'])el(id).disabled=value;
+ for(const id of ['wasm-import','rust-compile','wasm-import-build','rust-compile-build','key-connect','key-file','key-disconnect','preflight','save-current','saved-load','saved-delete','saved-refresh','saved-verify','verify-button','deploy','isolated-build','isolated-check','upgrade-start','network-select'])el(id).disabled=value;
  if(!value){el('upgrade-start').disabled=!artifact||sourceDirty;updateDeploy();}
 }
 function artifactUpdate(meta){
@@ -274,7 +276,7 @@ async function runIsolatedBuild(){
 }
 function startUpgradeReview(){
  const target=el('upgrade-target').value.trim();
- if(!/^[a-z0-9]+(?:[._-][a-z0-9]+)*\.testnet$/.test(target)){notify('Enter the exact existing contract account ending in .testnet.',true);return;}
+ if(!new RegExp('^[a-z0-9]+(?:[._-][a-z0-9]+)*\\.'+(selectedNetwork==='mainnet'?'near':'testnet')+'$').test(target)){notify('Enter the exact '+selectedNetwork+' contract account.',true);return;}
  if(!artifact){notify('Compile or import a WASM before reviewing an upgrade.',true);return;}
  if(sourceDirty){notify('Save source edits and recompile before reviewing an upgrade.',true);return;}
  el('owner').value=target;
