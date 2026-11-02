@@ -45,16 +45,22 @@ test('managed runtime status requires Windows x64 and refuses other architecture
  await assert.rejects(()=>node.status('/fake'),/Windows x64/);
  await assert.rejects(()=>node.install('/fake'),/Windows x64/);
 });
-test('Forge exposes JS/TS build actions and local project editing without eval',async()=>{
+test('Forge runs JS/TS projects ONLY through Docker; native npm and Node routes unavailable',async()=>{
  const main=await fs.readFile(path.join(__dirname,'../src/main.cjs'),'utf8');
  const preload=await fs.readFile(path.join(__dirname,'../src/preload.cjs'),'utf8');
- const html=await fs.readFile(path.join(__dirname,'../src/index.html'),'utf8');
- for(const name of ['project-open','source-open','source-save','node-status','node-setup','js-install','js-build'])
-  assert.ok(main.includes("'"+name+"'"),name);
- for(const id of ['source-code','source-project','source-save','source-file','node-check','node-install','js-dependencies','js-compile','js-log'])
-  assert.ok(html.includes('id="'+id+'"'),id);
- assert.match(main,/if\(signer\)throw Error\('Disconnect the local signer before compiling a JavaScript/);
+ const ui=await fs.readFile(path.join(__dirname,'../src/index.html'),'utf8');
+ const renderer=await fs.readFile(path.join(__dirname,'../src/renderer.js'),'utf8');
+ for(const name of ['node-setup','js-install','js-build']){
+  assert.doesNotMatch(main,new RegExp("bind\\('"+name+"'"));
+  assert.doesNotMatch(preload,new RegExp("invoke\\('"+name+"'"));
+ }
+ assert.match(main,/if\(signer\)throw Error\('Disconnect the Mainnet\/Testnet signer before any Docker build/);
+ assert.match(main,/bind\('isolated-build'/);
  assert.match(main,/sourceEditor\.saveSource/);
+ assert.match(renderer,/wire\('js-compile',async\(\)=>/);
+ assert.match(renderer,/await runIsolatedBuild\(\)/);
+ assert.match(ui,/id="js-compile"/);
+ assert.match(ui,/Build JS\/TS in Docker/);
  assert.match(preload,/sourceOpen:file=>invoke\('source-open',file\)/);
  assert.doesNotMatch(preload,/eval\(|spawn\(/);
 });

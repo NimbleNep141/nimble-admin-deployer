@@ -6,18 +6,11 @@ contextBridge.exposeInMainWorld('forge',Object.freeze({
  setNetwork:network=>invoke('set-network',network),
  inspect:id=>invoke('inspect',id),
  openWasm:()=>invoke('open-wasm'),
- compileRust:()=>invoke('compile-rust'),
  isolatedStatus:()=>invoke('isolated-status'),
  isolatedBuild:args=>invoke('isolated-build',args),
- compilerStatus:()=>invoke('compiler-status'),
- compilerSetup:()=>invoke('compiler-setup'),
  projectOpen:()=>invoke('project-open'),
  sourceOpen:file=>invoke('source-open',file),
  sourceSave:data=>invoke('source-save',data),
- nodeStatus:()=>invoke('node-status'),
- nodeSetup:()=>invoke('node-setup'),
- jsInstall:()=>invoke('js-install'),
- jsBuild:config=>invoke('js-build',config),
  onCompilerProgress:listener=>{
   if(typeof listener!=='function')return ()=>{};
   const handler=(_event,data)=>{if(data&&typeof data.message==='string')listener(data);};

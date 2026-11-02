@@ -6,7 +6,7 @@
 <div class="app-shell">
 <header class="topbar">
   <div class="brand"><div class="brand-mark"><img class="brand-logo" src="./assets/nearium-forge-logo.png" alt="Nearium Forge logo"/></div><div class="brand-type"><b>NEARIUM <em>FORGE</em></b><small>SMART CONTRACT DEPLOYMENT STUDIO</small></div></div>
-  <div class="top-right"><span class="env-pill" id="env-label"><span class="live-dot"></span> NEAR TESTNET</span><span class="top-divider"></span><span class="version">DESKTOP BETA v0.6.0</span></div>
+  <div class="top-right"><span class="env-pill" id="env-label"><span class="live-dot"></span> NEAR TESTNET</span><span class="top-divider"></span><span class="version">DESKTOP BETA v0.7.0</span></div>
 </header>
 <div id="home" class="page">
   <div class="home-hero">
@@ -66,9 +66,9 @@
           <div class="stack">
             <div class="panel">
               <div class="panel-title"><div><span class="step-index">01</span><b>Contract artifact</b></div><span id="artifact-status" class="status-dot neutral">NO WASM</span></div>
-              <div id="artifact-detail" class="artifact-summary"><div class="file-icon">W</div><div><b>No contract selected</b><span>Import compiled .wasm or build Rust source</span></div></div>
-              <div class="buttons"><button id="wasm-import" class="button button-mint">Import .WASM <span>＋</span></button><button id="rust-compile" class="button button-outline">Compile Rust Project</button></div>
-              <div class="soft-note">Use Compile / Import → Compiler Manager to install Rust tools. JavaScript/TypeScript contracts are compiled separately.</div>
+              <div id="artifact-detail" class="artifact-summary"><div class="file-icon">W</div><div><b>No contract selected</b><span>Import compiled .wasm or build Rust source using Docker</span></div></div>
+              <div class="buttons"><button id="wasm-import" class="button button-mint">Import .WASM <span>＋</span></button><button id="rust-compile" class="button button-outline">Build Rust in Docker</button></div>
+              <div class="soft-note">Docker Desktop with Linux containers is required for Rust and JS/TS compilation. Forge will not run native Windows build scripts.</div>
             </div>
             <div class="panel">
               <div class="panel-title"><div><span class="step-index">02</span><b>Local signer</b></div><span id="signer-status" class="status-dot neutral">DISCONNECTED</span></div>
@@ -171,28 +171,21 @@
         <div class="view-top"><span class="view-kicker">ARTIFACTS / TOOLCHAIN</span><h3>Compile & import</h3><p>Bring your contracts to the Forge. The bytecode, not the programming language, is what NEAR ultimately deploys.</p></div>
         <div class="feature-grid build-features">
           <div class="feature"><div class="feature-icon mint">W</div><span>ALL COMPATIBLE CONTRACTS</span><h3>Import .WASM</h3><p>Use Rust, JavaScript, TypeScript or another NEAR-compatible toolchain to produce WebAssembly. Import the resulting contract file.</p><button id="wasm-import-build" class="button button-mint">Browse WASM Files</button></div>
-          <div class="feature"><div class="feature-icon purple">⌘</div><span>RUST PROJECTS</span><h3>Compile locally</h3><p>Select a trusted Rust project containing Cargo.toml. Compiler Manager can install Rust and cargo-near for you.</p><button id="rust-compile-build" class="button button-outline">Select Rust Project</button></div>
+          <div class="feature"><div class="feature-icon purple">⌘</div><span>RUST PROJECTS</span><h3>Compile inside Docker</h3><p>Select a Rust project containing Cargo.toml and Cargo.lock. The build runs inside restricted Docker Linux containers, never directly on Windows.</p><button id="rust-compile-build" class="button button-outline">Build Rust in Docker</button></div>
         </div>
         <div class="panel compiler-panel">
- <div class="panel-title"><div><span class="step-index">⚙</span><b>Integrated Compiler Manager</b></div><span class="status-dot neutral" id="compiler-ready">NOT CHECKED</span></div>
- <p class="field-info">Install and manage the NEAR Rust compiler through Forge. No PowerShell commands required. Official downloads are SHA-256 verified.</p>
- <div class="compiler-status-grid">
-  <div class="compiler-stat"><span>RUSTUP</span><b id="rustup-state">Not checked</b></div>
-  <div class="compiler-stat"><span>RUST 1.97.1</span><b id="rust-state">Not checked</b></div>
-  <div class="compiler-stat"><span>WASM TARGET</span><b id="wasm-state">Not checked</b></div>
-  <div class="compiler-stat"><span>CARGO-NEAR</span><b id="cargo-near-state">Not checked</b></div>
- </div>
- <div class="buttons compiler-controls"><button id="compiler-check" class="button button-outline">Check Compiler</button><button id="compiler-install" class="button button-mint">Install / Repair Compiler Tools <span>↓</span></button></div>
- <div class="compiler-progress-head"><span>INSTALLATION / BUILD PROGRESS</span><b id="compiler-stage">IDLE</b></div>
- <div id="compiler-log" class="review-box compiler-log" role="status" aria-live="polite">Click Check Compiler to detect your installed tools, or Install / Repair to get started.</div>
- <p class="field-info warning-text">Disconnect your local signer before setup or compiling. Rust build scripts run native code. Compilation is not sandboxed. Microsoft C++ Build Tools may be needed.</p>
+  <div class="panel-title"><div><span class="step-index">⚙</span><b>Docker Build Environment</b></div><span class="status-dot neutral" id="compiler-ready">NOT CHECKED</span></div>
+  <p class="field-info">Forge v0.7 uses Docker-only compilation. Windows Rust, Cargo, Node.js and npm project builds are disabled. No automatic fallback is permitted.</p>
+  <div class="buttons compiler-controls"><button id="compiler-check" class="button button-outline">Check Docker Engine</button></div>
+  <div class="compiler-progress-head"><span>CONTAINER BUILD PROGRESS</span><b id="compiler-stage">IDLE</b></div>
+  <div id="compiler-log" class="review-box compiler-log" role="status" aria-live="polite">Install Docker Desktop, select Linux containers, then open a source project and build it in isolation.</div>
 </div>
 <div class="panel isolated-compiler-panel">
- <div class="panel-title"><div><span class="step-index">◈</span><b>Isolated Rust &amp; JavaScript / TypeScript Builds</b></div><span class="status-dot neutral" id="isolation-status">NOT CHECKED</span></div>
- <p class="field-info">Recommended for projects from GitHub. Forge copies selected source into a temporary workspace, builds inside restricted Docker Desktop Linux containers, and imports only the WASM you explicitly approve. The original project and signing keys are never mounted.</p>
- <div class="buttons compiler-controls"><button class="button button-outline" id="isolated-check">Check Docker Desktop</button><button class="button button-mint" id="isolated-build">Build Open Project in Isolation <span>↗</span></button></div>
- <div class="review-box compiler-log" id="isolated-log" role="status" aria-live="polite">Requires Docker Desktop running Linux containers. First build downloads a large toolchain image. A native Windows confirmation is always required.</div>
- <p class="field-info warning-text">Dependency downloads temporarily require container network access; the compilation stage runs offline. Containers are not perfect isolation. Only compile projects you have reviewed. Official near-sdk-js is deprecated and may fail even in Linux.</p>
+ <div class="panel-title"><div><span class="step-index">◈</span><b>Default / Required: Isolated Rust &amp; JavaScript / TypeScript Builds</b></div><span class="status-dot neutral" id="isolation-status">NOT CHECKED</span></div>
+ <p class="field-info">The only in-app source compilation path. Forge stages filtered project files into a temporary workspace, builds inside restricted Docker Desktop Linux containers, and imports only explicitly approved WASM. It never silently builds on Windows. Signers must be disconnected.</p>
+ <div class="buttons compiler-controls"><button class="button button-outline" id="isolated-check">Check Docker Desktop</button><button class="button button-mint" id="isolated-build">Build Open Project in Docker <span>↗</span></button></div>
+ <div class="review-box compiler-log" id="isolated-log" role="status" aria-live="polite">Requires Docker Desktop running Linux containers. If Docker is missing or stopped, Forge blocks compilation instead of using Windows tools. First build downloads a large toolchain image.</div>
+ <p class="field-info warning-text">Container dependency setup temporarily needs network access; the compilation phase runs offline. Docker isolation is not an absolute security guarantee. Review staged sources and dependencies. The archived near-sdk-js compiler may fail even in Linux.</p>
  <div class="panel-divider"></div>
  <div class="subsection-title">SOURCE TO CONTRACT UPGRADE · GUIDED WORKFLOW</div>
  <div class="upgrade-steps"><span>1. Edit</span><span>2. Save</span><span>3. Compile</span><span>4. Review WASM</span><span>5. Upgrade</span></div>
@@ -202,23 +195,19 @@
  <p class="field-info">Review moves to the existing-account deployment form. Your contract is not updated until you explicitly authorize the on-chain transaction. Storage layout compatibility is not automatically verified.</p>
 </div>
 <div class="panel js-compiler-panel">
-  <div class="panel-title"><div><span class="step-index">JS</span><b>JavaScript &amp; TypeScript Builder</b></div><span class="status-dot neutral" id="js-status">EXPERIMENTAL</span></div>
-  <p class="field-info">Build NEAR JS/TS projects with a package.json build script. NEAR's official near-sdk-js contract SDK is archived and deprecated, and its compiler does not support native Windows. Build those contracts under WSL/Linux and import their WASM. Other Windows-compatible npm build scripts remain experimental; review results on Testnet before considering Mainnet.</p>
-  <div class="compiler-status-grid js-status-grid">
-    <div class="compiler-stat"><span>NODE.JS</span><b id="node-state">Not checked</b></div>
-    <div class="compiler-stat"><span>DEPENDENCIES</span><b id="js-dependency-state">Open a project</b></div>
-    <div class="compiler-stat"><span>BUILD SCRIPT</span><b id="js-script-state">Open a project</b></div>
-  </div>
-  <div class="buttons compiler-controls">
-    <button id="node-check" class="button button-outline">Check Node.js</button>
-    <button id="node-install" class="button button-outline">Install Node.js</button>
-    <button id="js-dependencies" class="button button-outline">Install Dependencies</button>
-  </div>
-  <label for="js-build-script">Contract build script</label>
-  <select id="js-build-script"><option value="">Open a JS/TS project</option></select>
-  <button id="js-compile" class="button button-mint">Compile JavaScript / TypeScript <span>↗</span></button>
-  <div class="review-box compiler-log" id="js-log" role="status" aria-live="polite">Open a local JS/TS project, install Node.js and dependencies, then run its contract build script.</div>
-  <p class="field-info warning-text">npm build scripts execute programs on your PC. Disconnect all signing credentials before building. JavaScript/TypeScript contract compilation is not sandboxed.</p>
+ <div class="panel-title"><div><span class="step-index">JS</span><b>JavaScript &amp; TypeScript Docker Builder</b></div><span class="status-dot neutral" id="js-status">DOCKER REQUIRED</span></div>
+ <p class="field-info">JS/TS dependency installation and project build scripts run only in restricted Docker Linux containers. No local Node.js or native npm setup is needed. The official near-sdk-js SDK is archived and may have compatibility limitations.</p>
+ <div class="compiler-status-grid js-status-grid">
+  <div class="compiler-stat"><span>TOOLCHAIN</span><b id="node-state">Docker required</b></div>
+  <div class="compiler-stat"><span>DEPENDENCIES</span><b id="js-dependency-state">Inside Docker</b></div>
+  <div class="compiler-stat"><span>BUILD SCRIPT</span><b id="js-script-state">Open a project</b></div>
+ </div>
+ <div class="buttons compiler-controls"><button id="node-check" class="button button-outline">Check Docker for JS/TS</button></div>
+ <label for="js-build-script">Contract build script (runs inside container)</label>
+ <select id="js-build-script"><option value="">Open a JS/TS project</option></select>
+ <button id="js-compile" class="button button-mint">Build JS/TS in Docker <span>↗</span></button>
+ <div class="review-box compiler-log" id="js-log" role="status" aria-live="polite">Open a JS/TS source project and select a contract build script. Dependencies are fetched in the container and the build executes offline inside Docker.</div>
+ <p class="field-info warning-text">No Windows fallback. Disconnect any local signer before building. Container builds reduce but do not eliminate risks from malicious dependencies.</p>
 </div>
 <div class="panel code-editor-panel">
   <div class="panel-title"><div><span class="step-index">✎</span><b>Source Code Editor</b></div><span class="status-dot neutral" id="source-status">NO PROJECT</span></div>
@@ -236,7 +225,7 @@
   <p class="field-info">Edit .rs, .js, .ts, .jsx, .tsx, .json and .toml. Save creates a private local backup. To update on-chain code, compile a new WASM and explicitly approve an existing-account deployment.</p>
 </div>
 <div class="panel"><div class="panel-title"><div><span class="step-index">◇</span><b>Artifact details</b></div></div><div id="build-detail" class="review-box">No WASM loaded.</div></div>
-        <div class="soft-note code-warning">Building untrusted Rust projects can run native build scripts and dependencies on your computer. Only compile source code you trust. Forge does not audit contract security.</div>
+        <div class="soft-note code-warning">Building untrusted source may run malicious scripts within Docker. Docker reduces exposure but is not a full security guarantee. Forge does not audit contract security.</div>
       </section>
     </main>
   </div>

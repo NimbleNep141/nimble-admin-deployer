@@ -52,17 +52,19 @@ test('compiler installation is explicitly guarded on unsupported hosts',async()=
  await assert.rejects(()=>manager.status('/nope'),/Windows 10\/11 x64/);
  await assert.rejects(()=>manager.setup('/nope'),/Windows 10\/11 x64/);
 });
-test('compiler manager lives in Electron main; renderer has no arbitrary command or network access',()=>{
+test('native compiler is NOT exposed through Forge main or preload',()=>{
  const main=readFileSync(path.join(__dirname,'../src/main.cjs'),'utf8');
  const preload=readFileSync(path.join(__dirname,'../src/preload.cjs'),'utf8');
  const ui=readFileSync(path.join(__dirname,'../src/index.html'),'utf8');
- assert.match(main,/bind\('compiler-status'/);
- assert.match(main,/bind\('compiler-setup'/);
- assert.match(main,/if\(signer\)throw Error\('Disconnect the local signer/);
- assert.match(main,/compilerManager\.environment/);
- assert.match(ui,/id="compiler-install"/);
+ for(const name of ['compile-rust','compiler-setup','node-setup','js-install','js-build']){
+  assert.doesNotMatch(main,new RegExp("bind\\('"+name+"'"));
+  assert.doesNotMatch(preload,new RegExp("invoke\\('"+name+"'"));
+ }
+ assert.doesNotMatch(main,/spawn\('cargo'/);
+ assert.doesNotMatch(main,/compilerManager\.setup\(/);
+ assert.match(ui,/Docker Build Environment/);
  assert.match(ui,/id="compiler-check"/);
  assert.match(ui,/id="compiler-log"/);
- assert.match(preload,/compilerSetup:\(\)=>invoke\('compiler-setup'\)/);
+ assert.match(preload,/isolatedBuild:args=>invoke\('isolated-build',args\)/);
  assert.doesNotMatch(preload,/spawn|require\('node:fs'\)/);
 });
