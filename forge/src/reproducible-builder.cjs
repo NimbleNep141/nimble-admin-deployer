@@ -25,9 +25,9 @@ async function gitSnapshot(project,run=compilerManager.run){
  if(!/^[a-f0-9]{40,64}$/.test(commit))throw Error('Git HEAD must be a valid committed revision.');
  const dirty=(await invoke(['status','--porcelain','--untracked-files=all'])).trim();
  if(dirty)throw Error('Production build blocked: commit or discard ALL project changes and untracked files first. cargo-near otherwise builds committed code, not unsaved edits. Git status: '+dirty.slice(0,250));
- const manifest=path.join(project.root,'Cargo.toml');
- const lock=(await fs.stat(path.join(project.root,'Cargo.lock')).catch(()=>null))?
-   path.join(project.root,'Cargo.lock'):path.join(repoRoot,'Cargo.lock');
+ const manifest=path.join(projectRoot,'Cargo.toml');
+ const lock=(await fs.stat(path.join(projectRoot,'Cargo.lock')).catch(()=>null))?
+   path.join(projectRoot,'Cargo.lock'):path.join(repoRoot,'Cargo.lock');
  if(!(await fs.stat(lock).catch(()=>null)))throw Error('Production build requires a committed Cargo.lock in the project or workspace root.');
  for(const file of [manifest,lock]){
   const rel=path.relative(repoRoot,file).replace(/\\/g,'/');
