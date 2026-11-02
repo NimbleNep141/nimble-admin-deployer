@@ -238,6 +238,7 @@ async function jsInstallDependencies(_options,event){
  if(signer)throw Error('Disconnect the local signer before installing project dependencies.');
  if(!editorProject||editorProject.kind!=='javascript')throw Error('Open a JavaScript or TypeScript project with package.json first.');
  const info=await jsToolchain.projectInfo(editorProject);
+ if(info.legacySdk)throw Error('Official near-sdk-js is archived and its compiler explicitly does not support native Windows. Compile it in trusted WSL/Linux and import the resulting WASM. For new on-chain contracts use Rust.');
  const parent=BrowserWindow.fromWebContents(event.sender);
  if(!parent)throw Error('Native approval is required.');
  const answer=await dialog.showMessageBox(parent,{title:'Install Local JavaScript Project Dependencies',type:'warning',
@@ -258,6 +259,7 @@ async function jsBuild(data,event){
  if(signer)throw Error('Disconnect the local signer before compiling a JavaScript or TypeScript project.');
  if(!editorProject||editorProject.kind!=='javascript')throw Error('Open a JavaScript/TypeScript project with package.json first.');
  const info=await jsToolchain.projectInfo(editorProject);
+ if(info.legacySdk)throw Error('Official near-sdk-js builds are not supported on native Windows and the SDK is deprecated. Use a trusted Linux/WSL build environment and import its WASM.');
  const script=String(data?.script||'');
  const selected=info.scripts.find(s=>s.name===script);
  if(!selected)throw Error('The selected package.json build script no longer exists.');
