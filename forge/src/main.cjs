@@ -379,6 +379,7 @@ async function isolatedBuild(data,event){
 }
 async function preflight(data){
  if(compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy||isolateBusy)throw Error('Compiler is active.');
+ if(data?.network!==activeNetwork)throw Error('Deployment network differs from the active network. Reselect and run preflight.');
  await network();
  if(!current)throw Error('Import or compile a NEAR-compatible WASM contract first.');
  if(current.provenance?.sourceSha256){
@@ -390,13 +391,14 @@ async function preflight(data){
     throw Error('Source files changed after the selected WASM was compiled. Recompile before deployment.');
   }finally{await rm(snapshot.stage,{recursive:true,force:true}).catch(()=>{});}
  }
- if(!signer)throw Error('Connect a dedicated FullAccess Testnet key locally.');
+ if(!signer)throw Error('Connect a FullAccess '+activeNetwork+' key locally.');
+ if(signer.network!==activeNetwork)throw Error('Signer belongs to a different blockchain network.');
  const storageCost=await price();
  const p=plan(data,current.bytes,storageCost);
- if(signer.owner!==p.signer)throw Error('Signer does not match the selected account.');
+ if(signer.owner!==p.signer||p.network!==activeNetwork)throw Error('Signer or deployment network does not match.');
  if(p.mode==='existing'&&p.keyMode==='keyless')throw Error('Keyless is supported only for new child accounts.');
  const [target,owner]=await Promise.all([queryAccount(p.target),queryAccount(p.signer)]);
- if(!owner)throw Error('Signer account is missing on NEAR Testnet.');
+ if(!owner)throw Error('Signer account is missing on NEAR '+activeNetwork+'.');
  const auth=await rpc('query',{request_type:'view_access_key',finality:'final',account_id:p.signer,public_key:signer.publicKey.toString()});
  if(auth.permission!=='FullAccess')throw Error('The connected key no longer has full access.');
  const {baseEncode}=await api();
@@ -426,8 +428,8 @@ async function check(data){
  if(working)throw Error('Deployment is in progress.');
  const details=await preflight(data);
  const token=randomUUID();
- previewRecord={token,signature:JSON.stringify(data),hash:current.hash,owner:signer.owner,target:details.p.target};
- return {token,target:details.p.target,owner:details.p.signer,upgrade:details.upgrade,
+ previewRecord={token,signature:JSON.stringify(data),hash:current.hash,owner:signer.owner,target:details.p.target,network:activeNetwork};
+ return {token,network:activeNetwork,target:details.p.target,owner:details.p.signer,upgrade:details.upgrade,
    existingCodeHash:details.existingCodeHash,actions:details.actions,
    artifact:details.artifact,spendable:details.spendable,required:details.required,
    keyMode:details.p.keyMode,init:details.p.init.method||'none'};
@@ -438,32 +440,39 @@ async function deploy(data,event){
  working=true;let attempted=false;
  try{
   if(!data?.ack)throw Error('Review and acknowledge deployment risks first.');
+  if(data?.config?.network!==activeNetwork)throw Error('Active network changed. Run preflight again.');
+  if(activeNetwork==='mainnet'&&(!data.ackMainnet||data.confirmNetwork!=='MAINNET'))
+   throw Error('Mainnet requires the additional real-funds acknowledgment and exact MAINNET confirmation.');
   if(!previewRecord||data.token!==previewRecord.token||JSON.stringify(data.config)!==previewRecord.signature)
     throw Error('Configuration changed. Re-run Preflight before deploying.');
   const report=await preflight(data.config);
   const p=report.p;
   if(report.upgrade&&!data.ackMigration)throw Error('Explicitly acknowledge stored-state migration risks before upgrading an existing contract.');
   if(data.confirm!==p.target)throw Error('Type the exact contract address to approve.');
-  if(p.target!==previewRecord.target||signer.owner!==previewRecord.owner||current.hash!==previewRecord.hash)
+  if(p.target!==previewRecord.target||signer.owner!==previewRecord.owner||current.hash!==previewRecord.hash||previewRecord.network!==activeNetwork||signer.network!==activeNetwork)
     throw Error('Signer, contract or target changed. Re-run Preflight.');
-  if(pendingTarget===p.target)throw Error('This target has a prior deployment attempt this session. Inspect receipts before doing anything else.');
+  if(attemptedTargets.has(activeNetwork+':'+p.target))throw Error('This target has a prior deployment attempt on this network this session. Inspect receipts before retrying.');
   const parent=BrowserWindow.fromWebContents(event.sender);
   if(!parent)throw Error('Cannot display native Windows confirmation.');
-  const selection=await dialog.showMessageBox(parent,{title:'Nearium Forge · Sign Testnet Deployment',type:'warning',
-    buttons:['Cancel','Deploy Contract'],defaultId:0,cancelId:0,noLink:true,
-    message:(report.upgrade?'Replace code on ':'Deploy to ')+p.target+'?',
-    detail:'NETWORK: NEAR TESTNET\nPREVIOUS CODE HASH: '+(report.existingCodeHash||'none')+'\nNEW WASM SHA-256: '+p.wasmHash+'\nBUILD MODE: '+(current.provenance?.mode||'imported / unverified')+'\nSTORAGE MIGRATION: NOT AUTOMATIC'+
+  const mainnet=activeNetwork==='mainnet';
+  const selection=await dialog.showMessageBox(parent,{title:mainnet?'Nearium Forge · MAINNET REAL FUNDS':'Nearium Forge · Sign Testnet Deployment',type:'warning',
+    buttons:['Cancel',mainnet?'DEPLOY ON MAINNET':'Deploy Contract'],defaultId:0,cancelId:0,noLink:true,
+    message:(mainnet?'REAL NEAR / MAINNET: ':'')+(report.upgrade?'Replace code on ':'Deploy to ')+p.target+'?',
+    detail:'NETWORK: '+networkConfig(activeNetwork).label.toUpperCase()+(mainnet?' — REAL FUNDS, IRREVERSIBLE TRANSACTION':'')+
+      '\nRPC: '+networkConfig(activeNetwork).rpc+
+      '\nPREVIOUS CODE HASH: '+(report.existingCodeHash||'none')+'\nNEW WASM SHA-256: '+p.wasmHash+
+      '\nBUILD MODE: '+(current.provenance?.mode||'imported / unverified')+'\nSTORAGE MIGRATION: NOT AUTOMATIC'+
       '\nACTIONS:\n'+report.actions.map(x=>'  • '+x).join('\n')+
       '\n\nPrivate signing stays on this computer. Failed transactions may create or leave a funded account. Do not retry blindly.'});
   if(selection.response!==1)return {cancelled:true};
   // Explicitly recheck after UI approval. No transaction sent yet.
   const fresh=await preflight(data.config);
-  if(fresh.p.target!==p.target)throw Error('Target changed after approval.');
+  if(fresh.p.target!==p.target||fresh.p.network!==activeNetwork)throw Error('Target or network changed after approval.');
   const {actions}=await api();
   const list=actionsFor(actions,current.bytes,p,signer.publicKey);
   previewRecord=null;
   attempted=true;
-  pendingTarget=p.target;
+  attemptedTargets.add(activeNetwork+':'+p.target);
   // retries=0 is vital for create-account transactions, no automatic resubmission.
   const tx=await signer.account.signAndSendTransaction({
     receiverId:p.target,actions:list,retries:0,waitUntil:'FINAL',throwOnFailure:false
@@ -479,24 +488,24 @@ async function deploy(data,event){
   const failed=Boolean(tx?.status?.Failure);
   // Successful status doesn't prove contract initialization is semantically correct.
   const verified=Boolean(!failed&&hashMatches&&keyValid);
-  return {cancelled:false,target:p.target,txHash,codeHash:account?.code_hash||null,
+  return {cancelled:false,network:activeNetwork,target:p.target,txHash,codeHash:account?.code_hash||null,
    expectedCodeHash:expected,hashMatches,keyCount,verified,failed,
    warning:verified?'Code hash and access-key checks passed. Review any initialization receipts separately.':
    'Execution or post-deployment checks need review. Do not retry without investigating receipts.'};
  }catch(e){
-  if(attempted)throw Error('Submission/verification is uncertain: '+safeError(e)+'. Check testnet explorer BEFORE another attempt.');
+  if(attempted)throw Error('Submission/verification is uncertain: '+safeError(e)+'. Check the selected network explorer BEFORE another attempt.');
   throw e;
  }finally{working=false;previewRecord=null}
 }
 async function inspectContract(value){
  await network();
- const id=accountId(value);
+ const id=accountId(value,activeNetwork);
  const state=await queryAccount(id);
- if(!state)return {account:id,exists:false};
+ if(!state)return {account:id,network:activeNetwork,exists:false};
  const keys=await rpc('query',{request_type:'view_access_key_list',finality:'final',account_id:id});
  const apiInstance=await api();
  const expected=current?apiInstance.baseEncode(createHash('sha256').update(current.bytes).digest()):null;
- return {account:id,exists:true,codeHash:state.code_hash,keys:keys.keys?.length??null,
+ return {account:id,network:activeNetwork,exists:true,codeHash:state.code_hash,keys:keys.keys?.length??null,
   balance:fmt(BigInt(state.amount)),storageUsage:state.storage_usage,
   expectedCodeHash:expected,matchesImported:expected?state.code_hash===expected:null};
 }
@@ -514,6 +523,7 @@ async function selectSaved(id){
 }
 function register(){
  bind('network',network);
+ bind('set-network',selectNetwork);
  bind('inspect',inspectContract);
  bind('open-wasm',openWasm);
  bind('compile-rust',compileRust);
