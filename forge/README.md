@@ -9,7 +9,7 @@ Nearium Forge is a SEPARATE Windows 10/11 desktop application alongside the exis
 ## Download
 1. Open https://github.com/Punisher530/nearium-admin-deployer/actions/workflows/nearium-forge-windows.yml
 2. Select the latest successful build and download the Nearium-Forge-Windows-10-11 artifact under Artifacts.
-3. Extract the ZIP and run Nearium-Forge-Windows-0.1.2.exe.
+3. Extract the ZIP and run Nearium-Forge-Windows-0.2.0.exe.
 4. The portable EXE is UNSIGNED, and a SmartScreen warning may appear. Check the provided SHA256SUMS.txt and review the source and origin before running it.
 
 ## Features
@@ -56,3 +56,13 @@ Nearium Forge is distinct from the original desktop factory deployer under deskt
 
 ## Official app logo
 The original user-provided transparent Nearium Forge hexagonal N PNG (600 × 561 pixels) is bundled unchanged in `src/assets/nearium-forge-logo.png`, and displayed in the header, landing-page hero, app window icon and HTML favicon. A matching multi-resolution Windows ICO is bundled in `src/assets/nearium-forge-icon.ico` and configured as the executable icon. GitHub CI verifies the PNG's SHA-256 to ensure it matches the supplied artwork.
+
+## Integrated NEAR Compiler Manager (v0.2.0)
+Open **Compile / Import** and select **Check Compiler** or **Install / Repair Compiler Tools**.
+- Windows 10/11 x64 only. Native confirmation (Cancel by default) is mandatory.
+- Rustup 1.29.0 is downloaded from the official Rust HTTPS archive and checked against that archive's published SHA-256.
+- Rust 1.97.1 with wasm32-unknown-unknown is installed for the current Windows user. Microsoft's C++ Build Tools might be required and are not installed automatically.
+- The cargo-near 0.22.0 Windows x64 archive is downloaded from an exact official NEAR GitHub release, verified against the SHA-256 pinned in compiler-manager.cjs, and extracted under the current Windows user's Forge app data.
+- Compiler setup and compilation require disconnection of the local signer; tools do not receive wallet secrets or deploy contracts.
+- Compiling Rust source can execute arbitrary native build scripts under your Windows account. Builds are NOT sandboxed. Do not compile untrusted repositories.
+- Local setup requires an internet connection. Automated tests check code and the Windows build but do not prove the entire toolchain has been installed or that compilation works end-to-end on a user's PC.
