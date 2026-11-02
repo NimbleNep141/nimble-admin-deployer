@@ -72,7 +72,7 @@ async function importKey({owner,secret}){
  return {owner,publicKey:publicKey.toString(),balance:fmt(BigInt(state?.amount||'0'))};
 }
 async function importKeyFile(owner){
- if(compilerSetupBusy||compilerBuildBusy)throw Error('Compiler active.');
+ if(compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy)throw Error('Compiler active.');
  if(working)throw Error('Deployment in progress.');
  accountId(owner);
  const choice=await dialog.showOpenDialog({title:'Select a testnet-only NEAR key file',properties:['openFile'],
@@ -90,6 +90,7 @@ async function importKeyFile(owner){
  return importKey({owner,secret:key});
 }
 async function openWasm(){
+ if(compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy)throw Error('Compiler is active.');
  if(working)throw Error('Deployment in progress.');
  const choice=await dialog.showOpenDialog({title:'Import any NEAR-compatible compiled contract',properties:['openFile'],
    filters:[{name:'NEAR WebAssembly',extensions:['wasm']}]});
@@ -107,7 +108,7 @@ function contractMetadata(){
 }
 async function compilerStatus(){return compilerManager.status(app.getPath('userData'));}
 async function setupCompiler(_unused,event){
- if(working||compilerSetupBusy||compilerBuildBusy)throw Error('Another action is running.');
+ if(working||compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy)throw Error('Another action is running.');
  if(signer)throw Error('Disconnect the local signer before installing compiler tools.');
  const parent=BrowserWindow.fromWebContents(event.sender);
  if(!parent)throw Error('Native Windows confirmation unavailable.');
@@ -122,7 +123,7 @@ async function setupCompiler(_unused,event){
  });}finally{compilerSetupBusy=false;}
 }
 async function compileRust(_options,event){
- if(working||compilerSetupBusy||compilerBuildBusy)throw Error('A compiler operation or deployment is active.');
+ if(working||compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy)throw Error('A compiler operation or deployment is active.');
  if(signer)throw Error('Disconnect the local signer before compiling source.');
  const tools=await compilerStatus();
  if(!tools.ready)throw Error('Compiler not ready. Open Compile / Import and install/repair tools.');
