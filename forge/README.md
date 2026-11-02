@@ -4,6 +4,20 @@
 
 Nearium Forge is a SEPARATE Windows 10/11 desktop application alongside the existing Nearium Factory Deployer. The original factory deployer remains unchanged. Forge uses its own source folder, workflow, and portable executable.
 
+## v0.6.0: High-safety Mainnet upgrade compatibility gate
+
+Existing-contract **Mainnet code upgrades are blocked by default**. This does not change new-contract deployments or Testnet upgrades.
+
+1. In Testnet, first deploy the **exact old Mainnet contract WASM** on a Testnet contract account and record its finalized deployment transaction hash. Rehearse **an upgrade of that same account** to the **exact proposed new WASM**, using the same migration function and JSON arguments intended for Mainnet; record the finalized upgrade transaction hash. Both Testnet proof transactions must have been signed by the contract account itself.
+2. After the Testnet upgrade, call a representative read-only method that returns JSON, and record its method, arguments and expected JSON result. Test important token balances, state versions, ownership, supply, withdrawals or invariants separately. A successful single view assertion cannot prove all state invariants.
+3. Select **Mainnet**, import the candidate WASM, select **Deploy to my existing account** and the proper Mainnet FullAccess signer. In **Mainnet Upgrade Safety Gate**, click **Inspect Mainnet Old / New WASM Hashes**.
+4. Manually copy/confirm the Mainnet target, existing on-chain code hash, and new WASM SHA-256. Write the persistent-state schema comparison, migration plan, rollback procedure and representative Testnet state coverage. Supply the two Testnet transaction hashes, account and post-upgrade view assertion. Approve all three risk acknowledgments.
+5. Click **Verify Testnet Proofs + Save Old Mainnet WASM**. Forge checks the Testnet chain ID, both transactions and successful receipts, old and new WASM hashes, chronological block heights, migration method and arguments, latest Testnet on-chain code, and post-upgrade view result. **It does not broadcast any transaction**.
+6. Forge independently fetches the previous **Mainnet** WASM from `view_code`, verifies the on-chain Base58 hash, and archives byte-for-byte `previous-contract.wasm` plus `compatibility-report.json` to your local Windows Forge profile `upgrade-backups/`. This is a local backup, **not an on-chain snapshot or automatic rollback**.
+7. Run Preflight again. Mainnet upgrade authorization is denied unless the report matches the currently selected contract/old hash/new code/settings and both local archive files remain checksum-valid. These checks run again before broadcasting, including after the native Windows Cancel-default confirmation.
+
+**Critical limits:** An identical WASM and a passing Testnet migration do not prove Mainnet's stored data is identical. Bytecode rollback cannot restore overwritten contract storage and may not be safely executable after migrations. The gate is a risk-management layer, not a compatibility proof, automatic migration tool, Mainnet end-to-end deployment test, or independent audit. Missing Testnet proof transactions, historical RPC data, a suitable view function, or intact rollback files intentionally **block** Mainnet upgrades. The existing keyless account restrictions still apply.
+
 ## v0.5.1: Fail-closed post-deployment verification
 - Independently query the finalized `tx` RPC status after broadcast; require matching transaction hash, sender, target, signing public key, approved action sequence, final status and a complete successful receipt graph.
 - If initialization was requested, require the matching function call and successful finalized execution receipts. This verifies execution success, **not application business invariants or persistent state correctness**.
@@ -33,7 +47,7 @@ Nearium Forge is a SEPARATE Windows 10/11 desktop application alongside the exis
 ## Download
 1. Open https://github.com/NimbleNep141/nimble-admin-deployer/actions/workflows/nearium-forge-windows.yml
 2. Select the latest successful build and download the Nearium-Forge-Windows-10-11 artifact under Artifacts.
-3. Extract the ZIP and run Nearium-Forge-Windows-0.5.1.exe.
+3. Extract the ZIP and run Nearium-Forge-Windows-0.6.0.exe.
 4. The portable EXE is UNSIGNED, and a SmartScreen warning may appear. Check the provided SHA256SUMS.txt and review the source and origin before running it.
 
 ## Features

@@ -43,14 +43,27 @@ function targetId(){
 function modeUpdate(){
  const isNew=el('mode').value==='new';
  display('child-options',isNew);display('existing-options',!isNew);
+ display('mainnet-upgrade-review',!isNew&&selectedNetwork==='mainnet');
  setText('target',targetId()||'Enter a valid '+selectedNetwork+' account');
+}
+function upgradeEvidence(){
+ return {approvedTarget:el('upgrade-approved-target').value.trim(),
+  approvedOldHash:el('upgrade-approved-old').value.trim(),approvedNewSha:el('upgrade-approved-new').value.trim(),
+  stateSchema:el('upgrade-state-schema').value.trim(),migrationPlan:el('upgrade-migration-plan').value.trim(),
+  rollbackPlan:el('upgrade-rollback-plan').value.trim(),testCoverage:el('upgrade-test-coverage').value.trim(),
+  testnetAccount:el('upgrade-testnet-account').value.trim(),baselineTx:el('upgrade-baseline-tx').value.trim(),
+  upgradeTx:el('upgrade-testnet-tx').value.trim(),viewMethod:el('upgrade-view-method').value.trim(),
+  viewArgs:el('upgrade-view-args').value.trim(),expectedView:el('upgrade-expected-view').value.trim(),
+  ackCompatible:el('upgrade-compatible').checked,ackRollback:el('upgrade-rollback-ack').checked,
+  ackNotGuaranteed:el('upgrade-risk-ack').checked};
 }
 function config(){
  return {network:selectedNetwork,owner:el('owner').value.trim(),mode:el('mode').value,
   prefix:el('prefix').value.trim(),funding:el('funding').value.trim(),
   keyMode:el('key-mode').value,replace:el('replace-code').checked,
   initMethod:el('init-method').value.trim(),initArgs:el('init-args').value.trim(),
-  gas:el('gas').value.trim(),initDeposit:el('init-deposit').value.trim()};
+  gas:el('gas').value.trim(),initDeposit:el('init-deposit').value.trim(),
+  upgradeEvidence:selectedNetwork==='mainnet'&&el('mode').value==='existing'?upgradeEvidence():null};
 }
 function invalidate(){
  review=null;
@@ -63,7 +76,8 @@ function updateDeploy(){
  const ack=el('ack').checked;
  const migrationReady=!review?.upgrade||el('upgrade-ack').checked;
  const mainnetReady=selectedNetwork!=='mainnet'||(el('mainnet-ack').checked&&el('mainnet-word').value.trim()==='MAINNET');
- const enabled=!working&&Boolean(review)&&review.network===selectedNetwork&&exact&&ack&&migrationReady&&mainnetReady;
+ const upgradePrepared=selectedNetwork!=='mainnet'||!review?.upgrade||Boolean(review.upgradeToken&&review.rollbackFolder&&review.testnetProof);
+ const enabled=!working&&Boolean(review)&&review.network===selectedNetwork&&exact&&ack&&migrationReady&&mainnetReady&&upgradePrepared;
  el('deploy').disabled=!enabled;
  const hint=working?'An operation is in progress. Do not submit again.':
    !artifact?'Import a contract WASM or compile a Rust project first.':
@@ -72,13 +86,14 @@ function updateDeploy(){
    !exact?'Type the exact target address from the preflight results.':
    !ack?'Check the transaction review and acknowledgment box.':
    !migrationReady?'Review and acknowledge state migration risks before replacing this contract.':
+    !upgradePrepared?'Mainnet upgrade is BLOCKED. Complete Testnet rehearsal and preserve the old WASM first.':
     !mainnetReady?'Check real-funds approval and type MAINNET exactly.':
    'Ready. The next step is a native Windows confirmation; Cancel is the default.';
  setText('deploy-hint',hint);
 }
 function busy(value){
  working=value;
- for(const id of ['wasm-import','rust-compile','wasm-import-build','rust-compile-build','key-connect','key-file','key-disconnect','preflight','save-current','saved-load','saved-delete','saved-refresh','saved-verify','verify-button','deploy','isolated-build','isolated-check','upgrade-start','network-select'])el(id).disabled=value;
+ for(const id of ['wasm-import','rust-compile','wasm-import-build','rust-compile-build','key-connect','key-file','key-disconnect','preflight','save-current','saved-load','saved-delete','saved-refresh','saved-verify','verify-button','deploy','isolated-build','isolated-check','upgrade-start','network-select','upgrade-inspect','upgrade-prepare'])el(id).disabled=value;
  if(!value){el('upgrade-start').disabled=!artifact||sourceDirty;updateDeploy();}
 }
 function artifactUpdate(meta){
@@ -316,6 +331,45 @@ async function disconnectKey(){
   setText('signer-detail','Signer disconnected. Close the app to end the session.');invalidate();notify('Local signing session disconnected.');
  }catch(e){notify(e.message,true)}finally{busy(false)}
 }
+async function inspectMainnetUpgrade(){
+ busy(true);
+ setText('upgrade-context-output','Checking existing Mainnet code hash against the selected WASM...');
+ try{
+  const data=await call('upgradeContext',config());
+  setText('upgrade-context-output',
+   'MAINNET TARGET     '+data.target+
+   '\nPREVIOUS CODE HASH '+data.oldCodeHash+
+   '\nNEW WASM SHA-256   '+data.newSha256+
+   '\nMIGRATION METHOD  '+(data.initMethod||'None')+
+   '\n\nCopy the exact hashes and target into the confirmation fields, then complete the required report and Testnet rehearsal proof.');
+  notify('Mainnet old/new code hashes inspected. No blockchain transaction was submitted.');
+ }catch(e){setText('upgrade-context-output','INSPECTION FAILED: '+e.message);notify(e.message,true)}
+ finally{busy(false)}
+}
+async function prepareMainnetUpgrade(){
+ invalidate();busy(true);
+ setText('upgrade-report-output','Validating Mainnet old code, Testnet baseline and migration receipts, state assertion, and secure rollback archive...');
+ try{
+  const data=await call('upgradePrepare',{config:config(),evidence:upgradeEvidence()});
+  setText('upgrade-report-output','UPGRADE COMPATIBILITY PACKAGE READY'+
+   '\nMAINNET TARGET           '+data.target+
+   '\nPREVIOUS MAINNET HASH    '+data.oldCodeHash+
+   '\nOLD WASM SHA-256         '+data.oldSha256+
+   '\nNEW WASM SHA-256         '+data.newSha256+
+   '\nTESTNET BASELINE TX      '+data.testnetEvidence.baselineTx+
+   '\nTESTNET MIGRATION TX     '+data.testnetEvidence.upgradeTx+
+   '\nTESTNET BLOCK RANGE      '+data.testnetEvidence.oldHeight+' → '+data.testnetEvidence.newHeight+
+   '\nTESTNET POST-UPGRADE VIEW '+data.testnetEvidence.viewMethod+
+   '\nLOCAL ROLLBACK WASM      '+data.backupFile+
+   '\nLOCAL REPORT             '+data.reportFile+
+   '\nREPORT SHA-256           '+data.backupReportHash+
+   '\n\nTESTNET EVIDENCE VALIDATED. You must now run Preflight again. Backup does NOT restore Mainnet persistent state.');
+  notify('Compatibility report, independently verified Testnet rehearsal and old Mainnet WASM backup prepared. Run Preflight.');
+ }catch(e){
+  setText('upgrade-report-output','MAINNET UPGRADE BLOCKED\n'+e.message+'\nNo Mainnet transaction was signed.');
+  notify('Mainnet upgrade evidence failed: '+e.message,true);
+ }finally{busy(false)}
+}
 async function doPreflight(){
  invalidate();busy(true);setReview('Checking on-chain account, storage price, signature permissions and deployment safety…');
  try{
@@ -328,7 +382,7 @@ async function doPreflight(){
     'WASM SHA-256             '+report.artifact.hash,
     'AVAILABLE BALANCE       '+report.spendable+' NEAR',
     'REQUIRED + GAS RESERVE  '+report.required+' NEAR',
-    'UPGRADE                 '+(report.upgrade?'YES, existing code will be replaced':'NO')+(report.upgrade?'\nPREVIOUS CODE HASH      '+(report.existingCodeHash||'unavailable')+'\nSOURCE FINGERPRINT      '+(report.artifact?.provenance?.sourceSha256||'not recorded')+'\nSTORAGE MIGRATION       NOT AUTOMATIC':''),
+    'UPGRADE                 '+(report.upgrade?'YES, existing code will be replaced':'NO')+(report.upgrade?'\nPREVIOUS CODE HASH      '+(report.existingCodeHash||'unavailable')+'\nSOURCE FINGERPRINT      '+(report.artifact?.provenance?.sourceSha256||'not recorded')+'\nSTORAGE MIGRATION       NOT AUTOMATIC'+(report.rollbackFolder?'\nVERIFIED ROLLBACK WASM  '+report.rollbackFolder+'\nTESTNET MIGRATION TX    '+report.testnetProof+'\nCOMPATIBILITY REPORT    VERIFIED ON LOCAL DISK':''):''),
     'ACCOUNT POLICY          '+report.keyMode,
     'ACTIONS\n  '+report.actions.join('\n  '),
     '\nPREFLIGHT PASSED. A transaction has NOT been signed or sent.'
@@ -352,7 +406,7 @@ async function doDeploy(){
  busy(true);
  setResult('Opening native Windows confirmation. Nothing is signed or sent until you choose Deploy Contract.');
  try{
-  const report=await call('deploy',{config:config(),token:review.token,confirm:el('confirmation').value.trim(),ack:true,ackMigration:el('upgrade-ack').checked,ackMainnet:el('mainnet-ack').checked,confirmNetwork:el('mainnet-word').value.trim()});
+  const report=await call('deploy',{config:config(),token:review.token,confirm:el('confirmation').value.trim(),ack:true,ackMigration:el('upgrade-ack').checked,upgradeToken:review.upgradeToken,ackMainnet:el('mainnet-ack').checked,confirmNetwork:el('mainnet-word').value.trim()});
   if(report.cancelled){setResult('Cancelled by user. No transaction was submitted.');notify('Deployment cancelled.');return;}
   submittedTarget=report.network+':'+report.target;
   lastDeployment={network:report.network,address:report.target,txHash:report.txHash,verified:report.verified};
@@ -482,6 +536,8 @@ async function changeNetwork(){
   setText('mini-signer','Not connected');setText('signer-status','DISCONNECTED');el('signer-status').className='status-dot neutral';
   setText('signer-detail','Network changed. Import a FullAccess '+selectedNetwork+' key. Never use recovery phrases.');
   setResult('Network switched. No transaction was submitted. New account, signer and preflight approval are required.');
+  setText('upgrade-report-output','No upgrade compatibility report active on this network.');
+  setText('upgrade-context-output','Select an existing Mainnet account and inspect old/new code hashes again.');
   setText('verify-output','Select an account on the active network to inspect.');
   invalidate();paintNetwork(state);
   notify('Network selected: '+selectedNetwork.toUpperCase()+'. Signing key disconnected. '+(selectedNetwork==='mainnet'?'CAUTION: real funds are at risk.':'Test NEAR only.'));
@@ -497,6 +553,7 @@ wire('toggle-secret',()=>{el('secret').type=el('secret').type==='password'?'text
 wire('key-connect',()=>connectKey(false));wire('key-file',()=>connectKey(true));wire('key-disconnect',disconnectKey);
 wire('compiler-check',refreshCompiler);wire('compiler-install',setupCompilerUI);
 wire('isolated-check',refreshIsolationStatus);wire('isolated-build',runIsolatedBuild);wire('upgrade-start',startUpgradeReview);
+wire('upgrade-inspect',inspectMainnetUpgrade);wire('upgrade-prepare',prepareMainnetUpgrade);
 wire('node-check',refreshNodeStatus);
 wire('node-install',()=>jsAction('nodeSetup','Managed Node.js installation'));
 wire('js-dependencies',()=>jsAction('jsInstall','Project dependency setup'));
@@ -511,7 +568,10 @@ wire('saved-verify',()=>{const entry=saved.find(x=>x.id===el('saved-select').val
  if((entry.deployment.network||'testnet')!==selectedNetwork){notify('Saved deployment is on '+(entry.deployment.network||'testnet')+'. Switch networks before verifying.',true);return;}
   el('verify-address').value=entry.deployment.address;showView('verify');verify();});
 el('saved-select').addEventListener('change',savedUpdate);
-const inputs=['owner','mode','prefix','funding','key-mode','replace-code','init-method','init-args','gas','init-deposit'];
+const inputs=['owner','mode','prefix','funding','key-mode','replace-code','init-method','init-args','gas','init-deposit',
+ 'upgrade-approved-target','upgrade-approved-old','upgrade-approved-new','upgrade-state-schema','upgrade-migration-plan',
+ 'upgrade-rollback-plan','upgrade-test-coverage','upgrade-testnet-account','upgrade-baseline-tx','upgrade-testnet-tx',
+ 'upgrade-view-method','upgrade-view-args','upgrade-expected-view','upgrade-compatible','upgrade-rollback-ack','upgrade-risk-ack'];
 for(const id of inputs){
  for(const event of ['input','change'])el(id).addEventListener(event,()=>{
   if(id==='mode')modeUpdate();

@@ -11,13 +11,14 @@ const jsToolchain=require('./js-toolchain.cjs');
 const isolatedBuilder=require('./isolated-builder.cjs');
 const {YOCTO,networkConfig,accountId,fmt,wasm,sha,plan,actionsFor,displayActions}=require('./core.cjs');
 const {verifyDeployment}=require('./deployment-verification.cjs');
+const upgradeSafety=require('./upgrade-safety.cjs');
 
 let activeNetwork='testnet',switchingNetwork=false,networkOperations=0;
-const networkOperationNames=new Set(['network','inspect','import-key','key-file','preflight','deploy']);
+const networkOperationNames=new Set(['network','inspect','import-key','key-file','preflight','deploy','upgrade-context','upgrade-prepare']);
 const EMPTY_CODE='11111111111111111111111111111111';
-let current=null,signer=null,previewRecord=null,working=false,library=null,compilerSetupBusy=false,compilerBuildBusy=false,jsSetupBusy=false,jsBuildBusy=false,isolateBusy=false,editorProject=null,editorLoaded=null;
+let current=null,signer=null,previewRecord=null,upgradeReview=null,working=false,library=null,compilerSetupBusy=false,compilerBuildBusy=false,jsSetupBusy=false,jsBuildBusy=false,isolateBusy=false,editorProject=null,editorLoaded=null;
 const attemptedTargets=new Set();
-function invalidate(){previewRecord=null;}
+function invalidate(){previewRecord=null;upgradeReview=null;}
 const result=(code,data)=>({ok:true,data});
 function safeError(e){
  let message=typeof e?.message==='string'?e.message:'Unexpected error';
@@ -425,15 +426,89 @@ async function preflight(data){
    spendable:fmt(ownerAvailable),required:fmt(required),actions:displayActions(p),
    artifact:contractMetadata(),targetExists:Boolean(target)};
 }
+// Existing Mainnet code can be replaced only after a documented Testnet migration rehearsal
+// and a verified, retained byte-for-byte copy of the previously deployed Mainnet WASM.
+async function upgradeContext(data){
+ if(working)throw Error('Finish the current operation before inspecting a Mainnet upgrade.');
+ if(activeNetwork!=='mainnet')throw Error('Upgrade compatibility review is exclusive to Mainnet.');
+ const details=await preflight({...data,replace:true});
+ if(!details.upgrade||details.p.mode!=='existing')throw Error('Select an existing Mainnet contract that already has deployed code.');
+ if(details.onchainHash===details.existingCodeHash)throw Error('The selected WASM is already installed; no upgrade is required.');
+ return {network:'mainnet',target:details.p.target,oldCodeHash:details.existingCodeHash,
+  newSha256:details.p.wasmHash,initMethod:details.p.init.method||null,
+  notice:'A matching code hash does not prove stored-state compatibility. Rehearse on Testnet before approving Mainnet.'};
+}
+async function prepareUpgrade(data){
+ if(working)throw Error('A transaction or upgrade review is running.');
+ if(activeNetwork!=='mainnet')throw Error('Mainnet upgrade review requires Mainnet selection.');
+ working=true;upgradeReview=null;previewRecord=null;
+ try{
+  const config=data?.config;
+  const details=await preflight(config);
+  if(details.p.mode!=='existing'||!details.upgrade||!details.existingCodeHash||details.existingCodeHash===EMPTY_CODE)
+   throw Error('Upgrade review requires an existing Mainnet contract with deployed code.');
+  if(details.onchainHash===details.existingCodeHash)throw Error('No code change detected. Select a different WASM.');
+  if(JSON.stringify(config.upgradeEvidence)!==JSON.stringify(data.evidence))
+   throw Error('Compatibility report changed between the form and signed deployment configuration.');
+  const parsed=upgradeSafety.validateEvidence(data.evidence,{
+   target:details.p.target,oldCodeHash:details.existingCodeHash,
+   newSha:details.p.wasmHash,initMethod:details.p.init.method,
+   initArgs:JSON.stringify(details.p.init.args)});
+  const {baseEncode}=await api();
+  // Fetch bytes from the ACTUAL Mainnet account, not a user-selected local file.
+  const raw=await rpc('query',{request_type:'view_code',finality:'final',account_id:details.p.target},'mainnet');
+  const bytes=upgradeSafety.decodeCodeResponse(raw,baseEncode);
+  if(raw.hash!==details.existingCodeHash||baseEncode(createHash('sha256').update(bytes).digest())!==details.existingCodeHash)
+   throw Error('Mainnet contract code changed during review. Restart the upgrade review.');
+  const evidence={...parsed,oldSha:sha(bytes)};
+  const tested=await upgradeSafety.verifyTestnetRehearsal(evidence,{rpc,baseEncode});
+  // Repeat the Mainnet preflight after Testnet reads to detect external code replacement.
+  const again=await preflight(config);
+  if(again.existingCodeHash!==details.existingCodeHash||again.p.wasmHash!==details.p.wasmHash||again.p.target!==details.p.target)
+   throw Error('Mainnet contract or selected WASM changed during review. Review aborted.');
+  const report={
+   reportType:'Nearium Forge Mainnet Upgrade Compatibility',
+   mainnetTarget:details.p.target,oldCodeHash:details.existingCodeHash,
+   oldSha256:sha(bytes),newSha256:details.p.wasmHash,
+   network:'mainnet',initMethod:details.p.init.method||null,
+   initArgs:details.p.init.args,
+   reviewerStatements:parsed.report,testnetEvidence:tested,
+   limitations:'Testnet receipt and view checks cannot prove that Mainnet stored state matches Testnet or that a downgrade will safely revert state. Human source/schema review is required.'
+  };
+  const archive=await upgradeSafety.retainRollback(app.getPath('userData'),{
+   target:details.p.target,oldCodeHash:details.existingCodeHash,oldWasm:bytes,report});
+  const token=randomUUID();
+  upgradeReview={token,signature:JSON.stringify(config),oldCodeHash:details.existingCodeHash,
+   newSha256:details.p.wasmHash,target:details.p.target,archive,tested,network:'mainnet'};
+  return {approved:true,token,target:details.p.target,oldCodeHash:details.existingCodeHash,
+   oldSha256:archive.oldSha256,newSha256:details.p.wasmHash,
+   backupFolder:archive.folder,backupFile:archive.file,reportFile:archive.metadata,
+   backupReportHash:archive.reportSha256,testnetEvidence:tested,
+   warning:'Testnet proof and byte-for-byte backup confirmed. This does NOT automatically migrate Mainnet state or guarantee that rollback restores previous storage.'};
+ }finally{working=false;}
+}
+async function requireUpgradeReview(config,details){
+ if(activeNetwork!=='mainnet'||!details.upgrade)return null;
+ if(!upgradeReview||upgradeReview.network!=='mainnet'||upgradeReview.signature!==JSON.stringify(config)||
+   upgradeReview.target!==details.p.target||upgradeReview.oldCodeHash!==details.existingCodeHash||
+   upgradeReview.newSha256!==details.p.wasmHash)
+  throw Error('MAINNET UPGRADE BLOCKED: prepare a matching compatibility report, independently verified Testnet migration and retained rollback WASM before preflight.');
+ await upgradeSafety.verifyArchive(upgradeReview.archive);
+ return upgradeReview;
+}
 async function check(data){
  if(working)throw Error('Deployment is in progress.');
  const details=await preflight(data);
+ const prepared=await requireUpgradeReview(data,details);
  const token=randomUUID();
  previewRecord={token,signature:JSON.stringify(data),hash:current.hash,owner:signer.owner,target:details.p.target,network:activeNetwork};
  return {token,network:activeNetwork,target:details.p.target,owner:details.p.signer,upgrade:details.upgrade,
    existingCodeHash:details.existingCodeHash,actions:details.actions,
    artifact:details.artifact,spendable:details.spendable,required:details.required,
-   keyMode:details.p.keyMode,init:details.p.init.method||'none'};
+   keyMode:details.p.keyMode,init:details.p.init.method||'none',
+  upgradeToken:prepared?.token||null,
+  rollbackFolder:prepared?.archive.folder||null,
+  testnetProof:prepared?.tested.upgradeTx||null};
 }
 async function deploy(data,event){
  if(compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy||isolateBusy)throw Error('Compiler is active.');
@@ -447,6 +522,8 @@ async function deploy(data,event){
   if(!previewRecord||data.token!==previewRecord.token||JSON.stringify(data.config)!==previewRecord.signature)
     throw Error('Configuration changed. Re-run Preflight before deploying.');
   const report=await preflight(data.config);
+  const prepared=await requireUpgradeReview(data.config,report);
+  if(prepared&&data.upgradeToken!==prepared.token)throw Error('Mainnet upgrade compatibility approval token does not match. Run Preflight again.');
   const p=report.p;
   if(report.upgrade&&!data.ackMigration)throw Error('Explicitly acknowledge stored-state migration risks before upgrading an existing contract.');
   if(data.confirm!==p.target)throw Error('Type the exact contract address to approve.');
@@ -463,12 +540,15 @@ async function deploy(data,event){
       '\nRPC: '+networkConfig(activeNetwork).rpc+
       '\nPREVIOUS CODE HASH: '+(report.existingCodeHash||'none')+'\nNEW WASM SHA-256: '+p.wasmHash+
       '\nBUILD MODE: '+(current.provenance?.mode||'imported / unverified')+'\nSTORAGE MIGRATION: NOT AUTOMATIC'+
+      (prepared?'\nROLLBACK WASM: '+prepared.archive.file+'\nTESTNET MIGRATION TX: '+prepared.tested.upgradeTx+'\nTESTNET STATE VIEW: '+prepared.tested.viewMethod:'')+
       '\nACTIONS:\n'+report.actions.map(x=>'  • '+x).join('\n')+
       '\n\nPrivate signing stays on this computer. Failed transactions may create or leave a funded account. Do not retry blindly.'});
   if(selection.response!==1)return {cancelled:true};
   // Explicitly recheck after UI approval. No transaction sent yet.
   const fresh=await preflight(data.config);
-  if(fresh.p.target!==p.target||fresh.p.network!==activeNetwork)throw Error('Target or network changed after approval.');
+  await requireUpgradeReview(data.config,fresh);
+  if(fresh.p.target!==p.target||fresh.p.network!==activeNetwork||fresh.existingCodeHash!==report.existingCodeHash)
+   throw Error('Target, network or old code hash changed after approval.');
   const {actions,baseEncode}=await api();
   const expected=baseEncode(createHash('sha256').update(current.bytes).digest());
   const approvedPublicKey=signer.publicKey.toString();
@@ -568,6 +648,8 @@ function register(){
  bind('key-file',importKeyFile);
  bind('disconnect',async()=>{if(working)throw Error('Deployment running.');signer=null;invalidate();return {cleared:true}});
  bind('preflight',check);
+ bind('upgrade-context',upgradeContext);
+ bind('upgrade-prepare',prepareUpgrade);
  bind('deploy',deploy);
  bind('library-list',()=>library.list());
  bind('library-save',saveContract);

@@ -36,3 +36,12 @@ test('real funds have independent mainnet approval and network-specific attempt 
  const html=require('node:fs').readFileSync(require('node:path').join(__dirname,'../src/index.html'),'utf8');
  for(const id of ['network-select','mainnet-gate','mainnet-ack','mainnet-word','mainnet-warning'])assert.ok(html.includes('id="'+id+'"'));
 });
+
+test('Mainnet upgrade requires independently checked Testnet migration and local code archive',()=>{
+ for(const phrase of ['MAINNET UPGRADE BLOCKED','verifyTestnetRehearsal','retainRollback','verifyArchive',
+  'await requireUpgradeReview(data.config,fresh)'])
+  assert.ok(source.includes(phrase),phrase);
+ assert.match(source,/data\.upgradeToken!==prepared\.token/);
+ const loader=require('node:fs').readFileSync(require('node:path').join(__dirname,'../src/preload.cjs'),'utf8');
+ assert.match(loader,/upgradePrepare:.*invoke\('upgrade-prepare'/);
+});

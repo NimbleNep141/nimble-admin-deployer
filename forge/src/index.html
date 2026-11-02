@@ -6,7 +6,7 @@
 <div class="app-shell">
 <header class="topbar">
   <div class="brand"><div class="brand-mark"><img class="brand-logo" src="./assets/nearium-forge-logo.png" alt="Nearium Forge logo"/></div><div class="brand-type"><b>NEARIUM <em>FORGE</em></b><small>SMART CONTRACT DEPLOYMENT STUDIO</small></div></div>
-  <div class="top-right"><span class="env-pill" id="env-label"><span class="live-dot"></span> NEAR TESTNET</span><span class="top-divider"></span><span class="version">DESKTOP BETA v0.5.1</span></div>
+  <div class="top-right"><span class="env-pill" id="env-label"><span class="live-dot"></span> NEAR TESTNET</span><span class="top-divider"></span><span class="version">DESKTOP BETA v0.6.0</span></div>
 </header>
 <div id="home" class="page">
   <div class="home-hero">
@@ -86,7 +86,40 @@
                 <label for="key-mode">New account ownership</label><select id="key-mode"><option value="controlled">Recoverable: add existing signer key</option><option value="keyless">Immutable: no access keys (advanced)</option></select>
                 <p class="field-info warning-text" id="keyless-warning" hidden>Keyless accounts cannot be upgraded or repaired through ordinary access-key transactions. Incorrect initialization can permanently strand funds.</p>
               </div>
-              <div id="existing-options" hidden><label class="checkbox-row"><input type="checkbox" id="replace-code"/> I approve replacing code already installed on this account.</label><label class="checkbox-row" id="upgrade-ack-row" hidden><input type="checkbox" id="upgrade-ack"/> I understand this upgrade may break existing state or balances, and that storage migrations are my responsibility.</label><p class="field-info warning-text">Editing code locally does not alter the blockchain. After compiling the new WASM, explicitly approve replacement on your existing contract account. Upgrades can break state or require migrations; only a full-access key authorized for the target account can replace its code.</p></div>
+              <div id="existing-options" hidden><label class="checkbox-row"><input type="checkbox" id="replace-code"/> I approve replacing code already installed on this account.</label><label class="checkbox-row" id="upgrade-ack-row" hidden><input type="checkbox" id="upgrade-ack"/> I understand this upgrade may break existing state or balances, and that storage migrations are my responsibility.</label><p class="field-info warning-text">Editing code locally does not alter the blockchain. After compiling the new WASM, explicitly approve replacement on your existing contract account. Upgrades can break state or require migrations; only a full-access key authorized for the target account can replace its code.</p>
+                <div class="mainnet-upgrade-review" id="mainnet-upgrade-review" hidden>
+                  <div class="subsection-title">MAINNET UPGRADE SAFETY GATE <span>REQUIRED</span></div>
+                  <p class="field-info warning-text">Mainnet upgrades remain blocked until you provide a compatibility report, independently verifiable Testnet baseline and upgrade transactions, a successful post-migration view check, and a verified local archive of the OLD Mainnet contract WASM. A code backup is NOT a state snapshot and is NOT automatic rollback.</p>
+                  <button type="button" id="upgrade-inspect" class="button button-outline">1. Inspect Mainnet Old / New WASM Hashes</button>
+                  <div id="upgrade-context-output" class="review-box" role="status">Import proposed new WASM, select Mainnet and an existing account, then inspect the current hashes.</div>
+                  <div class="form-grid">
+                    <div><label for="upgrade-approved-target">Confirm exact Mainnet upgrade account</label><input id="upgrade-approved-target" spellcheck="false" placeholder="contract.near"/></div>
+                    <div><label for="upgrade-approved-old">Copy the previous Mainnet code hash</label><input id="upgrade-approved-old" spellcheck="false" placeholder="On-chain Base58 code hash"/></div>
+                  </div>
+                  <label for="upgrade-approved-new">Copy the proposed new WASM SHA-256</label><input id="upgrade-approved-new" spellcheck="false" placeholder="64-character SHA-256 hex"/>
+                  <div class="subsection-title">REQUIRED COMPATIBILITY REPORT</div>
+                  <label for="upgrade-state-schema">Persistent state schema comparison</label>
+                  <textarea id="upgrade-state-schema" rows="3" spellcheck="false" placeholder="Describe the old and new state structures, changed fields and serialization formats."></textarea>
+                  <label for="upgrade-migration-plan">Migration sequence and compatibility assumptions</label>
+                  <textarea id="upgrade-migration-plan" rows="3" spellcheck="false" placeholder="Explain the migration function, timing, initializer arguments, and what happens to existing balances."></textarea>
+                  <label for="upgrade-rollback-plan">Recovery / rollback procedure</label>
+                  <textarea id="upgrade-rollback-plan" rows="3" spellcheck="false" placeholder="Explain how to use the archived old WASM and how you would address incompatible state after migration."></textarea>
+                  <label for="upgrade-test-coverage">Representative Testnet state and invariants tested</label>
+                  <textarea id="upgrade-test-coverage" rows="3" spellcheck="false" placeholder="Describe existing balances/records, upgrade checks, and what successful read-only assertions actually prove."></textarea>
+                  <div class="subsection-title">TESTNET MIGRATION REHEARSAL <span>ON-CHAIN PROOFS</span></div>
+                  <p class="field-info">Use a Testnet account that first had the exact previous Mainnet WASM deployed, then upgraded to the exact proposed WASM. Supply the two final transaction hashes. The second transaction must have the same migration method and arguments as the proposed Mainnet upgrade. A new account creation alone is not a migration test.</p>
+                  <label for="upgrade-testnet-account">Rehearsal contract account (.testnet)</label><input id="upgrade-testnet-account" spellcheck="false" placeholder="contract.youraccount.testnet"/>
+                  <label for="upgrade-baseline-tx">Testnet transaction hash: deploy OLD WASM</label><input id="upgrade-baseline-tx" spellcheck="false" placeholder="Baseline deployment transaction hash"/>
+                  <label for="upgrade-testnet-tx">Testnet transaction hash: upgrade to NEW WASM</label><input id="upgrade-testnet-tx" spellcheck="false" placeholder="Successful migration transaction hash"/>
+                  <label for="upgrade-view-method">Post-upgrade read-only method</label><input id="upgrade-view-method" spellcheck="false" placeholder="get_version / get_state"/>
+                  <label for="upgrade-view-args">View arguments (JSON object)</label><textarea id="upgrade-view-args" rows="2" spellcheck="false">{}</textarea>
+                  <label for="upgrade-expected-view">Expected JSON view response after migration</label><textarea id="upgrade-expected-view" rows="2" spellcheck="false" placeholder='{"version":"2"}'></textarea>
+                  <label class="checkbox-row"><input id="upgrade-compatible" type="checkbox"/> I personally reviewed persistent-state compatibility, migration behavior and balances.</label>
+                  <label class="checkbox-row"><input id="upgrade-rollback-ack" type="checkbox"/> I understand the old WASM is saved locally, but downgrading code does not restore old state.</label>
+                  <label class="checkbox-row"><input id="upgrade-risk-ack" type="checkbox"/> I understand these tests do not guarantee that Mainnet contract state is identical to Testnet.</label>
+                  <button type="button" id="upgrade-prepare" class="button button-mint">2. Verify Testnet Proofs + Save Old Mainnet WASM</button>
+                  <div id="upgrade-report-output" class="review-box" role="status">No Mainnet upgrade compatibility report prepared. No Mainnet upgrade transaction is authorized.</div>
+                </div></div>
               <label class="space-top">Expected contract address</label><div id="target" class="address-box">Enter signer account above</div>
               <div class="panel-divider"></div>
               <div class="subsection-title">INITIALIZATION <span>OPTIONAL</span></div>

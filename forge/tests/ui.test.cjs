@@ -61,3 +61,14 @@ test('mainnet selection and explicit real-funds confirmation are wired',()=>{
  assert.match(js,/call\('setNetwork'/);
  assert.match(js,/selectedNetwork==='mainnet'/);
 });
+
+test('Mainnet upgrade report and Testnet proof controls are present and wired',()=>{
+ for(const id of ['mainnet-upgrade-review','upgrade-inspect','upgrade-prepare','upgrade-state-schema',
+  'upgrade-migration-plan','upgrade-rollback-plan','upgrade-test-coverage','upgrade-testnet-account',
+  'upgrade-baseline-tx','upgrade-testnet-tx','upgrade-view-method','upgrade-expected-view',
+  'upgrade-approved-old','upgrade-approved-new','upgrade-approved-target','upgrade-report-output'])
+  assert.ok(html.includes('id="'+id+'"'),id);
+ assert.match(js,/call\('upgradePrepare'/);
+ assert.match(js,/call\('upgradeContext'/);
+ assert.match(js,/upgradeToken:review\.upgradeToken/);
+});
