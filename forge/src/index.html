@@ -175,17 +175,33 @@
         </div>
         <div class="panel compiler-panel">
   <div class="panel-title"><div><span class="step-index">⚙</span><b>Docker Build Environment</b></div><span class="status-dot neutral" id="compiler-ready">NOT CHECKED</span></div>
-  <p class="field-info">Forge v0.7 uses Docker-only compilation. Windows Rust, Cargo, Node.js and npm project builds are disabled. No automatic fallback is permitted.</p>
+  <p class="field-info">Forge uses NEAR's official cargo-near build commands. Development compiles in restricted Docker; the production reproducible-wasm command orchestrates its own Docker build. No fallback to native Windows project compilation.</p>
   <div class="buttons compiler-controls"><button id="compiler-check" class="button button-outline">Check Docker Engine</button></div>
   <div class="compiler-progress-head"><span>CONTAINER BUILD PROGRESS</span><b id="compiler-stage">IDLE</b></div>
   <div id="compiler-log" class="review-box compiler-log" role="status" aria-live="polite">Install Docker Desktop, select Linux containers, then open a source project and build it in isolation.</div>
 </div>
 <div class="panel isolated-compiler-panel">
  <div class="panel-title"><div><span class="step-index">◈</span><b>Default / Required: Isolated Rust &amp; JavaScript / TypeScript Builds</b></div><span class="status-dot neutral" id="isolation-status">NOT CHECKED</span></div>
- <p class="field-info">The only in-app source compilation path. Forge stages filtered project files into a temporary workspace, builds inside restricted Docker Desktop Linux containers, and imports only explicitly approved WASM. It never silently builds on Windows. Signers must be disconnected.</p>
- <div class="buttons compiler-controls"><button class="button button-outline" id="isolated-check">Check Docker Desktop</button><button class="button button-mint" id="isolated-build">Build Open Project in Docker <span>↗</span></button></div>
+ <p class="field-info">Both Rust build modes compile in Docker. Development stages filtered local sources; production delegates Git checkout and Docker orchestration to NEAR's official reproducible-wasm mode. WASM artifacts require explicit approval; signer keys must be disconnected.</p>
+ <label for="rust-build-mode">Rust build mode</label>
+  <select id="rust-build-mode">
+   <option value="development">Development · cargo-near non-reproducible-wasm in restricted Docker</option>
+   <option value="production">Production · official cargo-near reproducible-wasm (Git committed source)</option>
+  </select>
+  <p class="field-info">Development accepts locally saved files. Production requires a clean committed Git project, tracked Cargo.lock, reproducible_build metadata and a verified official cargo-near Windows launcher that orchestrates Docker. JavaScript / TypeScript uses development mode only.</p>
+  <div class="buttons compiler-controls">
+   <button class="button button-outline" id="isolated-check">Check Docker Desktop</button>
+   <button class="button button-mint" id="isolated-build">Build Open Project in Docker <span>↗</span></button>
+  </div>
+  <div class="panel-divider"></div>
+  <div class="subsection-title">RUST PRODUCTION TOOLCHAIN</div>
+  <div class="buttons compiler-controls">
+   <button id="reproducible-check" class="button button-outline">Check Official cargo-near</button>
+   <button id="reproducible-install" class="button button-outline">Install Verified Production Tools</button>
+  </div>
+  <div class="review-box compiler-log" id="reproducible-log" role="status" aria-live="polite">For the production mode only: the official cargo-near Windows command launches the NEAR reproducible Docker build. Setup installs verified Rust/cargo-near tooling, but never compiles the project on Windows.</div>
  <div class="review-box compiler-log" id="isolated-log" role="status" aria-live="polite">Requires Docker Desktop running Linux containers. If Docker is missing or stopped, Forge blocks compilation instead of using Windows tools. First build downloads a large toolchain image.</div>
- <p class="field-info warning-text">Container dependency setup temporarily needs network access; the compilation phase runs offline. Docker isolation is not an absolute security guarantee. Review staged sources and dependencies. The archived near-sdk-js compiler may fail even in Linux.</p>
+ <p class="field-info warning-text">Development compilation runs offline after fetching dependencies. Production mode delegates Docker orchestration and network behavior to official cargo-near. Neither mode audits source security. The archived near-sdk-js compiler may fail even in Linux.</p>
  <div class="panel-divider"></div>
  <div class="subsection-title">SOURCE TO CONTRACT UPGRADE · GUIDED WORKFLOW</div>
  <div class="upgrade-steps"><span>1. Edit</span><span>2. Save</span><span>3. Compile</span><span>4. Review WASM</span><span>5. Upgrade</span></div>
