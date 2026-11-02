@@ -32,7 +32,7 @@ function showView(next){
  document.querySelectorAll('.nav-link').forEach(n=>n.classList.toggle('selected',n.dataset.view===next));
  setText('workspace-title',names[next]);setText('workspace-desc',descriptions[next]);setText('crumb-page',next.toUpperCase());
  if(next==='library')refreshLibrary();
- if(next==='build')refreshCompiler();
+ if(next==='build'){refreshCompiler();refreshNodeStatus();}
  if(next==='verify'&&!el('verify-address').value.trim())el('verify-address').value=targetId();
 }
 function targetId(){
@@ -134,7 +134,114 @@ window.forge.onCompilerProgress(progress=>{
  if(!progress||typeof progress.message!=='string')return;
  setText('compiler-stage',String(progress.stage||'RUNNING').toUpperCase());
  setText('compiler-log',progress.message);
+ if(progress.stage==='node'||progress.stage==='javascript')setText('js-log',progress.message);
 });
+
+let sourceProject=null,sourceFile=null,sourceDirty=false,jsUIBusy=false;
+function setSourceDirty(changed){
+ sourceDirty=Boolean(changed);
+ setText('source-dirty',!sourceFile?'NO FILE':sourceDirty?'UNSAVED CHANGES':'SAVED');
+ setText('source-status',sourceProject?(sourceDirty?'UNSAVED':'LOCAL PROJECT'):'NO PROJECT');
+ el('source-save').disabled=!sourceDirty;
+}
+function selectOptions(select,items){
+ select.replaceChildren();
+ for(const item of items){
+  const option=document.createElement('option');
+  option.value=item.value;option.textContent=item.label;
+  select.appendChild(option);
+ }
+}
+function fillProject(project){
+ sourceProject=project;sourceFile=null;setSourceDirty(false);
+ el('source-code').value='';el('source-code').disabled=true;
+ setText('source-project-path',project.root+' · '+(project.kind==='rust'?'RUST':'JAVASCRIPT / TYPESCRIPT'));
+ selectOptions(el('source-file'),project.files.map(f=>({value:f,label:f})));
+ if(project.files.length===0)selectOptions(el('source-file'),[{value:'',label:'No editable source files found'}]);
+ const config=project.config;
+ if(project.kind==='javascript'&&config){
+  setText('js-dependency-state',config.hasModules?'node_modules present':'Not installed');
+  setText('js-script-state',config.scripts.length?config.scripts.map(x=>x.name).join(', '):'No build script');
+  selectOptions(el('js-build-script'),config.scripts.length?config.scripts.map(x=>({value:x.name,label:x.name+' · '+x.command.slice(0,55)})):[{value:'',label:'No supported contract build script'}]);
+ }else{
+  setText('js-dependency-state','Open a JS/TS project');
+  setText('js-script-state','Open a JS/TS project');
+  selectOptions(el('js-build-script'),[{value:'',label:'Open a JS/TS project first'}]);
+ }
+}
+async function openSourceFile(file){
+ if(sourceDirty){el('source-file').value=sourceFile?.file||'';notify('Save or discard your unsaved changes before switching files.',true);return;}
+ if(!file)return;
+ try{
+  const loaded=await call('sourceOpen',file);
+  sourceFile=loaded;el('source-file').value=loaded.file;
+  el('source-code').value=loaded.text;el('source-code').disabled=false;
+  setSourceDirty(false);
+ }catch(e){notify('Cannot open source: '+e.message,true);}
+}
+async function openProjectUI(){
+ if(sourceDirty){notify('Save or discard your changes before opening another project.',true);return;}
+ try{
+  const project=await call('projectOpen');
+  if(project.cancelled)return;
+  fillProject(project);
+  if(project.files.length)await openSourceFile(project.files[0]);
+  notify('Local '+project.kind+' project opened. Source files remain on your PC.');
+ }catch(e){notify('Project selection failed: '+e.message,true);}
+}
+async function saveSourceUI(){
+ if(!sourceFile||!sourceDirty)return;
+ try{
+  const value=el('source-code').value;
+  const result=await call('sourceSave',{file:sourceFile.file,text:value});
+  if(result.cancelled)return;
+  sourceFile={...sourceFile,text:value,hash:result.hash};
+  setSourceDirty(false);
+  notify(result.unchanged?'No source changes detected.':'Source code saved. Previous version backed up locally.');
+ }catch(e){notify('Save failed: '+e.message,true);}
+}
+async function discardSourceUI(){
+ if(!sourceFile)return;
+ sourceDirty=false;
+ await openSourceFile(sourceFile.file);
+ notify('Source code reloaded from the saved file.');
+}
+async function refreshNodeStatus(){
+ try{
+  const state=await call('nodeStatus');
+  setText('node-state',state.ready?'Ready · '+state.version:'Missing · '+state.version);
+  setText('js-status',state.ready?'NODE READY':'NODE SETUP');
+ }catch(e){
+  setText('node-state','Unavailable');
+  setText('js-status','NODE ERROR');
+  setText('js-log',e.message);
+ }
+}
+async function jsAction(action,label,arg=null){
+ if(jsUIBusy)return;
+ if(sourceDirty){notify('Save or discard source changes before running JavaScript project tools.',true);return;}
+ jsUIBusy=true;busy(true);
+ for(const id of ['node-install','js-dependencies','js-compile'])el(id).disabled=true;
+ setText('js-log',label+' ...');
+ try{
+  const res=await call(action,arg);
+  if(res.cancelled){setText('js-log','Operation cancelled.');return;}
+  if(res.contract){
+   artifactUpdate(res.contract);
+   setText('js-log','Compiled and imported '+res.contract.name+' from the local JavaScript/TypeScript project.');
+   notify('JS/TS WASM compiled and imported. Review its hash before deployment.');
+  }else{
+   setText('js-log',(res.description||res.log||'Operation completed.').slice(-1400));
+   notify(label+' completed.');
+  }
+  await refreshNodeStatus();
+ }catch(e){setText('js-log',e.message);notify(label+' failed: '+e.message,true);}
+ finally{
+  jsUIBusy=false;busy(false);
+  for(const id of ['node-install','js-dependencies','js-compile'])el(id).disabled=false;
+ }
+}
+
 async function compileRust(){
  busy(true);notify('Choose a trusted Rust project. Cargo build scripts can run code on your PC. Never compile unknown projects.');
  try{
@@ -289,6 +396,13 @@ for(const id of ['rust-compile','rust-compile-build'])wire(id,compileRust);
 wire('toggle-secret',()=>{el('secret').type=el('secret').type==='password'?'text':'password'});
 wire('key-connect',()=>connectKey(false));wire('key-file',()=>connectKey(true));wire('key-disconnect',disconnectKey);
 wire('compiler-check',refreshCompiler);wire('compiler-install',setupCompilerUI);
+wire('node-check',refreshNodeStatus);
+wire('node-install',()=>jsAction('nodeSetup','Managed Node.js installation'));
+wire('js-dependencies',()=>jsAction('jsInstall','Project dependency setup'));
+wire('js-compile',()=>jsAction('jsBuild','JS/TS compilation',{script:el('js-build-script').value}));
+wire('source-project',openProjectUI);wire('source-save',saveSourceUI);wire('source-reload',discardSourceUI);
+el('source-file').addEventListener('change',()=>openSourceFile(el('source-file').value));
+el('source-code').addEventListener('input',()=>setSourceDirty(Boolean(sourceFile&&el('source-code').value!==sourceFile.text)));
 wire('preflight',doPreflight);wire('deploy',doDeploy);wire('save-current',saveCurrent);
 wire('saved-load',loadSaved);wire('saved-delete',deleteSaved);wire('saved-refresh',refreshLibrary);wire('verify-button',verify);
 wire('saved-verify',()=>{const entry=saved.find(x=>x.id===el('saved-select').value);if(!entry?.deployment?.address)return;
