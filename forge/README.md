@@ -6,8 +6,13 @@ Nearium Forge is a SEPARATE Windows 10/11 desktop application alongside the exis
 
 **ALPHA: NEAR TESTNET ONLY.** Supports a broad range of NEAR-compatible compiled WebAssembly contracts, including tokens, NFTs, factories, and marketplaces. Does not deploy Solidity/EVM bytecode. No guarantee of compatibility with every WASM binary.
 
+## Current build and verification status (v0.4.0)
+- v0.4.0 adds optional Docker-isolated Rust/JS/TS builds, stale-artifact invalidation, explicit WASM/hash selection, and guided code upgrade review. See the v0.4 section below; older v0.2/v0.3 instructions are preserved as legacy implementation notes.
+- A successful automated test suite or Windows packaging run does **not** verify Docker Desktop configuration, real JS/TS compilation, NEAR initialization, state preservation after upgrades, or real on-chain transactions. Verify those separately on Testnet.
+- Do not use a wallet with valuable funds or reuse live credentials during testing. A contract upgrade can permanently corrupt existing state even if its WASM hash matches.
+
 ## Download
-1. Open https://github.com/Punisher530/nearium-admin-deployer/actions/workflows/nearium-forge-windows.yml
+1. Open https://github.com/NimbleNep141/nimble-admin-deployer/actions/workflows/nearium-forge-windows.yml
 2. Select the latest successful build and download the Nearium-Forge-Windows-10-11 artifact under Artifacts.
 3. Extract the ZIP and run Nearium-Forge-Windows-0.4.0.exe.
 4. The portable EXE is UNSIGNED, and a SmartScreen warning may appear. Check the provided SHA256SUMS.txt and review the source and origin before running it.
@@ -15,7 +20,7 @@ Nearium Forge is a SEPARATE Windows 10/11 desktop application alongside the exis
 ## Features
 - **Landing page:** Nearium Forge branding and a polished dedicated studio entry screen.
 - **Compile Rust:** With Rust and cargo-near installed on Windows, select a TRUSTED Rust project directory containing Cargo.toml. Forge asks for explicit approval before running local cargo-near. Cargo build scripts and dependencies can execute native code.
-- **Import WASM:** Import any appropriately compiled NEAR-compatible WebAssembly file up to 3.5 MB. Other languages (including NEAR JavaScript/TypeScript) must be compiled with their own tooling first.
+- **Import WASM:** Import any appropriately compiled NEAR-compatible WebAssembly file up to 3.5 MB. JavaScript/TypeScript projects can use the optional v0.4 Docker-based Linux builder; compatible precompiled NEAR WASM can also be imported.
 - **New child account:** Creates prefix.owner.testnet, funds the account, installs the chosen WASM, and optionally calls an initializer method. Recoverable mode adds the existing signer public key to the child. Advanced keyless mode skips AddKey and should be used only after careful consideration.
 - **Existing account:** Replaces/install code on the locally signed account itself; requires a FullAccess key. Existing code replacement requires an explicit checkbox. This cannot bypass an account's key restrictions.
 - **Init:** Optional contract method, JSON argument object, gas and payable deposit.
@@ -109,3 +114,21 @@ The **Compile / Import** view now includes **Local Contract Code Editor** and **
 - The app remains a Windows 10/11 x64, NEAR Testnet alpha, unsigned and unaudited. Do not use for mainnet assets. Additional Docker image signature pinning, hostile-source testing and hands-on Windows end-to-end testing are required before production distribution.
 
 - Legacy JavaScript projects that use pnpm are detected from pnpm-lock.yaml, packageManager, or near-sdk-js and compiled using Corepack/pnpm in the Linux Docker container where available. This improves compatibility but does not guarantee support for outdated SDK installer dependencies. Common secret/credential filenames are omitted from staging; always review your project because filenames cannot reliably identify every secret.
+
+
+## v0.4 release acceptance checklist
+
+Use a dedicated disposable NEAR **Testnet** account. Do not consider v0.4 production-ready until these are documented with build/version, Windows version and outcome:
+
+1. **Release provenance:** Open the GitHub Actions workflow linked above; verify its successful run corresponds to the intended commit, download the artifact, and independently compare the EXE against `SHA256SUMS.txt`. Never treat an unverified ZIP or EXE as trusted.
+2. **Docker readiness:** Start Docker Desktop in Linux container mode. In Forge, use **Check Docker Desktop** and verify Linux is detected before running a build.
+3. **Rust isolated build:** Choose a trusted minimal Rust NEAR project with `Cargo.toml` and `Cargo.lock`; build with Docker isolation; verify selected WASM is newly produced, valid, and has the displayed SHA-256. Check that the application signer is disconnected before compiling.
+4. **JS/TS isolated build:** Choose a trusted project with `package.json` and an appropriate contract build script. Test npm and, separately, pnpm/Corepack where applicable. Verify dependency-download and offline-build phases and that the result is actual NEAR-compatible WASM. This is not automatic support for arbitrary JS or TS.
+5. **Editor safety:** Edit a disposable source file; verify confirmation, backup, and that saving clears the previously selected WASM. Confirm a recompile is required before deployment.
+6. **New-account deployment:** On a new, disposable Testnet child account, review every preflight action and amount; approve explicitly; independently check contract code hash and expected initialization state after deployment.
+7. **Existing-account upgrade:** On a disposable already-deployed contract, explicitly enter the existing target account. Verify the upgrade workflow cannot proceed without target selection, review of old/new WASM hashes, and migration-risk acknowledgment. Test with compatible state first; never assume a safe state migration from matching hashes alone.
+8. **Failure modes:** Cancel confirmation, reject invalid or stale WASM, use incorrect network/account data, and simulate an uncertain transaction result. Verify there is no silent transaction retry and that receipts are inspected before manual recovery.
+9. **Secrets and isolation:** Ensure staged Docker inputs exclude credential files and wallet directories. Docker reduces exposure; downloaded dependencies and build scripts remain untrusted. Do not call this an audited secure sandbox.
+10. **Go/no-go:** Keep **TESTNET ONLY** labeling until real Windows build and on-chain test evidence has been recorded and an independent security review has been completed.
+
+**Known limitations:** The portable Windows executable is unsigned. Docker builds may download dependencies with network access during an isolated dependency-install phase; only the subsequent compile phase is configured to run without network access. Some deprecated `near-sdk-js` projects may fail under modern Node/Corepack or require lockfile adjustments. Upgrade compatibility is the contract author's responsibility.
