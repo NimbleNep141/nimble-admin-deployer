@@ -5,10 +5,8 @@ on:
     branches: [main]
 permissions:
   contents: read
-  pages: write
-  id-token: write
 concurrency:
-  group: near-deployer-pages
+  group: near-deployer-artifacts
   cancel-in-progress: true
 jobs:
   # Browser integration gate: catches bundling errors that Node unit tests
@@ -75,19 +73,12 @@ jobs:
       - name: Compile frontend
         working-directory: admin
         run: npm run build
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
-      - name: Upload testnet admin site
-        uses: actions/upload-pages-artifact@v3
+      # Keep the browser dashboard downloadable without requiring GitHub Pages.
+      # This repository is private and Pages may not be enabled.
+      - name: Upload verified Testnet admin dashboard artifact
+        uses: actions/upload-artifact@v4
         with:
+          name: Nearium-Testnet-Admin-Dashboard
           path: admin/dist
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: [build, wallet-smoke]
-    steps:
-      - name: Publish site
-        id: deployment
-        uses: actions/deploy-pages@v4
+          retention-days: 30
+          if-no-files-found: error
