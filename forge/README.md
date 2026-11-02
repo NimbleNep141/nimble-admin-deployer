@@ -4,7 +4,18 @@
 
 Nearium Forge is a SEPARATE Windows 10/11 desktop application alongside the existing Nearium Factory Deployer. The original factory deployer remains unchanged. Forge uses its own source folder, workflow, and portable executable.
 
-**ALPHA: NEAR TESTNET ONLY.** Supports a broad range of NEAR-compatible compiled WebAssembly contracts, including tokens, NFTs, factories, and marketplaces. Does not deploy Solidity/EVM bytecode. No guarantee of compatibility with every WASM binary.
+## Dual-network release v0.5.0
+- Choose Testnet (default) or **Mainnet · REAL NEAR** using the deployment studio's network selector. No network switch happens without verifying the corresponding RPC reports the expected `chain_id`.
+- RPC providers use fixed FastNear endpoints: `https://rpc.testnet.fastnear.com` and `https://rpc.mainnet.fastnear.com`. Both must pass the read-only CI smoke test (status, chain ID, protocol configuration storage price).
+- Switching networks disconnects the signer, invalidates preflight, clears account/address fields and confirmation; attempted targets remain locked during the current process session.
+- The studio accepts only named `.testnet` accounts on Testnet and named `.near` accounts on Mainnet. Other suffixes and implicit accounts are not yet supported.
+- Import a **FullAccess key for the selected network's account only**; never provide recovery phrases. Signing stays local.
+- A Mainnet deployment requires all ordinary safeguards PLUS a separate real-funds checkbox, exact typed `MAINNET` phrase, and distinct Cancel-default native Windows Mainnet approval.
+- Compiled WASM can be used on either network, but a matching code hash is not a contract audit. State migrations are NOT automatic. Always rehearse with Testnet first.
+- CI runs live **read-only** checks against both networks. A Mainnet RPC verification is not proof of a completed Mainnet deployment. Real-funds signing and receipt verification require a carefully controlled separate end-to-end exercise.
+
+
+**BETA v0.5.0: NEAR TESTNET + MAINNET.** Mainnet spends real NEAR. Mainnet transaction signing is implemented, but no real-funds deployment has been independently executed or audited. Use Testnet first. Supports a broad range of NEAR-compatible compiled WebAssembly contracts, including tokens, NFTs, factories, and marketplaces. Does not deploy Solidity/EVM bytecode. No guarantee of compatibility with every WASM binary.
 
 ## Current build and verification status (v0.4.0)
 - v0.4.0 adds optional Docker-isolated Rust/JS/TS builds, stale-artifact invalidation, explicit WASM/hash selection, and guided code upgrade review. See the v0.4 section below; older v0.2/v0.3 instructions are preserved as legacy implementation notes.
@@ -14,7 +25,7 @@ Nearium Forge is a SEPARATE Windows 10/11 desktop application alongside the exis
 ## Download
 1. Open https://github.com/NimbleNep141/nimble-admin-deployer/actions/workflows/nearium-forge-windows.yml
 2. Select the latest successful build and download the Nearium-Forge-Windows-10-11 artifact under Artifacts.
-3. Extract the ZIP and run Nearium-Forge-Windows-0.4.0.exe.
+3. Extract the ZIP and run Nearium-Forge-Windows-0.5.0.exe.
 4. The portable EXE is UNSIGNED, and a SmartScreen warning may appear. Check the provided SHA256SUMS.txt and review the source and origin before running it.
 
 ## Features
@@ -45,7 +56,7 @@ Nearium Forge is a SEPARATE Windows 10/11 desktop application alongside the exis
 - ABI, initializer methods, arguments and compatible storage layout cannot be inferred automatically from arbitrary WASM. User must supply correct details.
 - A matching deployed code hash verifies bytes but does NOT audit contract logic or prove initializer correctness.
 - Source compilation can execute build scripts or dependency code. Compile only trusted source.
-- The renderer is sandboxed; remote web navigation is disabled. RPC operations use fixed NEAR testnet.
+- The renderer is sandboxed; remote web navigation is disabled. RPC operations use fixed, chain-checked NEAR Mainnet and Testnet endpoints.
 - Saved contract entries and WASM are stored in the Windows user profile; they are not encrypted. No keys are serialized.
 - CI syntax/unit tests and a successful Windows build are not substitutes for an end-to-end testnet deployment and security audit.
 
