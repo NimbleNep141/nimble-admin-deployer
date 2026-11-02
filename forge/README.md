@@ -4,6 +4,14 @@
 
 Nearium Forge is a SEPARATE Windows 10/11 desktop application alongside the existing Nearium Factory Deployer. The original factory deployer remains unchanged. Forge uses its own source folder, workflow, and portable executable.
 
+## v0.8.1: Host environment secret isolation for production builds
+
+Forge's official Rust production-build path now launches **both Git preflight and cargo-near** with a minimal allowlist of essential Windows system/toolchain environment variables. Arbitrary variables such as API tokens, cloud credentials, NEAR secret keys, credential-bearing proxy URLs, custom Git configuration overrides, and Docker host/context overrides are not inherited. This is enforced server-side in Forge's Electron main process, not merely through the user interface.
+
+The production builder **fails closed if the selected contract Cargo.toml declares `passed_env`**, including release variants. Such forwarding is supported by upstream cargo-near but is disabled in Forge by default to protect host credentials. If a contract requires host environment injection, use an independently controlled build environment and import its verified WASM; Forge does not silently enable forwarding or restore Windows-native compilation.
+
+This safeguard addresses environment-variable leakage, **not** every source of sensitive information. The official tool can still access permitted host files, Git credentials, and Docker configuration. Avoid building untrusted projects on machines holding valuable secrets. Corporate or credentialed proxy setups may require adjustment because proxy environment variables are intentionally not inherited. This build has automated canary tests for secret redaction, disallowed manifest metadata, and the Git/cargo-near subprocess boundary. Actual Windows Docker production builds and WASM reproducibility remain subject to end-to-end testing.
+
 ## v0.8.0: official NEAR development and production build modes
 
 **Windows desktop stays the same; only the way Rust contracts are built changes.** All smart-contract compilation remains in Docker. Forge delegates both Rust build modes to the official NEAR `cargo-near` tool, instead of implementing a separate reproducibility algorithm.
@@ -80,7 +88,7 @@ Existing-contract **Mainnet code upgrades are blocked by default**. This does no
 ## Download
 1. Open https://github.com/NimbleNep141/nimble-admin-deployer/actions/workflows/nearium-forge-windows.yml
 2. Select the latest successful build and download the Nearium-Forge-Windows-10-11 artifact under Artifacts.
-3. Extract the ZIP and run Nearium-Forge-Windows-0.7.1.exe.
+3. Extract the ZIP and run Nearium-Forge-Windows-0.8.1.exe.
 4. The portable EXE is UNSIGNED, and a SmartScreen warning may appear. Check the provided SHA256SUMS.txt and review the source and origin before running it.
 
 ## Features
