@@ -462,6 +462,10 @@ async function changeNetwork(){
   localSigner=null;lastDeployment=null;
   for(const id of ['owner','secret','confirmation','verify-address','upgrade-target','mainnet-word'])el(id).value='';
   el('mainnet-ack').checked=false;el('ack').checked=false;el('upgrade-ack').checked=false;el('replace-code').checked=false;
+  el('mode').value='new';el('key-mode').value='controlled';
+  el('funding').value=selectedNetwork==='mainnet'?'1':'6';
+  el('init-method').value='';el('init-args').value='{}';el('init-deposit').value='0';
+  display('keyless-warning',false);
   display('upgrade-ack-row',false);
   setText('mini-signer','Not connected');setText('signer-status','DISCONNECTED');el('signer-status').className='status-dot neutral';
   setText('signer-detail','Network changed. Import a FullAccess '+selectedNetwork+' key. Never use recovery phrases.');
