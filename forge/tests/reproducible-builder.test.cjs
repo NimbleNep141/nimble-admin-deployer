@@ -31,7 +31,7 @@ test('NEAR production mode accepts committed Rust and a tracked lockfile',async(
  await fixture(async(root)=>{
   const gitInfo=await reproducible.gitSnapshot({kind:'rust',root});
   assert.match(gitInfo.commit,/^[0-9a-f]{40}$/);
-  assert.equal(gitInfo.repoRoot,path.resolve(root));
+  assert.equal(path.resolve(gitInfo.repoRoot),path.resolve(root));
   assert.equal(path.basename(gitInfo.manifest),'Cargo.toml');
  });
 });
