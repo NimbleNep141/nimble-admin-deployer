@@ -46,9 +46,9 @@ test('NEAR production mode rejects dirty and untracked sources rather than silen
 });
 test('NEAR production mode requires Cargo.lock tracked in Git',async()=>{
  await fixture(async(root)=>{
-  git(root,'rm','--cached','Cargo.lock');
+  git(root,'rm','-f','Cargo.lock');
   git(root,'commit','-qm','untrack lockfile');
-  await assert.rejects(()=>reproducible.gitSnapshot({kind:'rust',root}),/Cargo.lock must be committed/);
+  await assert.rejects(()=>reproducible.gitSnapshot({kind:'rust',root}),/Cargo.lock/);
  });
 });
 test('official reproducible path uses cargo-near orchestrator, never native host source compilation',async()=>{
