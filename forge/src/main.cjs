@@ -6,11 +6,13 @@ const {spawn}=require('node:child_process');
 const {randomUUID,createHash}=require('node:crypto');
 const {Library}=require('./library.cjs');
 const compilerManager=require('./compiler-manager.cjs');
+const sourceEditor=require('./source-editor.cjs');
+const jsToolchain=require('./js-toolchain.cjs');
 const {YOCTO,accountId,fmt,wasm,sha,plan,actionsFor,displayActions}=require('./core.cjs');
 
 const RPC='https://rpc.testnet.near.org';
 const EMPTY_CODE='11111111111111111111111111111111';
-let current=null,signer=null,previewRecord=null,pendingTarget=null,working=false,library=null,compilerSetupBusy=false,compilerBuildBusy=false;
+let current=null,signer=null,previewRecord=null,pendingTarget=null,working=false,library=null,compilerSetupBusy=false,compilerBuildBusy=false,jsSetupBusy=false,jsBuildBusy=false,editorProject=null,editorLoaded=null;
 function invalidate(){previewRecord=null;}
 const result=(code,data)=>({ok:true,data});
 function safeError(e){
@@ -53,7 +55,7 @@ async function price(){
  return BigInt(n);
 }
 async function importKey({owner,secret}){
- if(compilerSetupBusy||compilerBuildBusy)throw Error('Compiler active. Disconnect signer until compilation is complete.');
+ if(compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy)throw Error('Compiler active. Disconnect signer until compilation is complete.');
  if(working)throw Error('Deployment in progress. Do not change the signer.');
  owner=accountId(owner);
  if(typeof secret!=='string'||secret.length>512||!/^ed25519:[1-9A-HJ-NP-Za-km-z]{70,110}$/.test(secret.trim()))
@@ -176,8 +178,119 @@ async function compileRust(_options,event){
  return {contract:contractMetadata(),log:output.log};
  }finally{compilerBuildBusy=false;}
 }
+function ensureEditorIdle(){
+ if(working||compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy)
+  throw Error('A compiler or deployment operation is in progress.');
+}
+async function chooseProject(){
+ ensureEditorIdle();
+ const selected=await dialog.showOpenDialog({title:'Open a Rust, JavaScript, or TypeScript contract project',properties:['openDirectory']});
+ if(selected.canceled)return {cancelled:true};
+ const project=await sourceEditor.openProject(selected.filePaths[0]);
+ editorProject=project;editorLoaded=null;
+ const config=project.kind==='javascript'?await jsToolchain.projectInfo(project):null;
+ return {root:project.root,kind:project.kind,files:project.files,config};
+}
+async function openSource(rel){
+ ensureEditorIdle();
+ if(!editorProject)throw Error('Open a project first.');
+ if(!editorProject.files.includes(rel))throw Error('Select an editable project file.');
+ const file=await sourceEditor.readSource(editorProject,rel);
+ editorLoaded={file:rel,hash:file.hash};
+ return file;
+}
+async function saveSource(data,event){
+ ensureEditorIdle();
+ if(!editorProject||!editorLoaded||data?.file!==editorLoaded.file)throw Error('Open an editable source file first.');
+ if(typeof data?.text!=='string'||data.text.length>1_000_000)throw Error('Invalid source text.');
+ const parent=BrowserWindow.fromWebContents(event.sender);
+ if(!parent)throw Error('Cannot show Windows save approval.');
+ const answer=await dialog.showMessageBox(parent,{title:'Save Contract Source Code',type:'question',
+  buttons:['Cancel','Save Changes'],defaultId:0,cancelId:0,noLink:true,
+  message:'Save changes to '+editorLoaded.file+'?',
+  detail:'This updates the source file on your computer, not any deployed blockchain contract. The previous version will be backed up in your private Windows Forge profile.'});
+ if(answer.response!==1)return {cancelled:true};
+ const result=await sourceEditor.saveSource(editorProject,editorLoaded.file,data.text,editorLoaded.hash,app.getPath('userData'));
+ editorLoaded.hash=result.hash;
+ return {file:result.file,hash:result.hash,unchanged:result.unchanged,backupCreated:Boolean(result.backup)};
+}
+async function nodeStatus(){
+ return jsToolchain.status(app.getPath('userData'));
+}
+async function nodeSetup(_options,event){
+ ensureEditorIdle();
+ if(signer)throw Error('Disconnect the local signer before installing JavaScript compiler tools.');
+ const parent=BrowserWindow.fromWebContents(event.sender);
+ if(!parent)throw Error('Cannot show native Windows confirmation.');
+ const answer=await dialog.showMessageBox(parent,{title:'Install Managed Node.js for JS/TS Contracts',type:'warning',
+  buttons:['Cancel','Install Node.js'],defaultId:0,cancelId:0,noLink:true,
+  message:'Install a local Node.js runtime for legacy JavaScript and TypeScript contract projects?',
+  detail:'Forge downloads pinned Node.js v22.21.0 from nodejs.org over HTTPS, verifies its published SHA-256 checksum, and extracts it into your Windows user profile. The official NEAR JavaScript smart contract SDK is archived and deprecated. Do not use experimental JS/TS contracts to hold valuable assets. Installation is local and will not access your signer.'});
+ if(answer.response!==1)return {cancelled:true};
+ jsSetupBusy=true;
+ try{return await jsToolchain.install(app.getPath('userData'),progress=>{
+  if(!event.sender.isDestroyed())event.sender.send('forge:compiler-progress',progress);
+ });}finally{jsSetupBusy=false;}
+}
+async function jsInstallDependencies(_options,event){
+ ensureEditorIdle();
+ if(signer)throw Error('Disconnect the local signer before installing project dependencies.');
+ if(!editorProject||editorProject.kind!=='javascript')throw Error('Open a JavaScript or TypeScript project with package.json first.');
+ const info=await jsToolchain.projectInfo(editorProject);
+ const parent=BrowserWindow.fromWebContents(event.sender);
+ if(!parent)throw Error('Native approval is required.');
+ const answer=await dialog.showMessageBox(parent,{title:'Install Local JavaScript Project Dependencies',type:'warning',
+  buttons:['Cancel','Install Dependencies'],defaultId:0,cancelId:0,noLink:true,
+  message:'Install npm dependencies for '+info.name+'?',
+  detail:'This downloads dependencies listed by the selected project. npm lifecycle scripts are disabled during installation, but dependency packages may still be unsafe. Only use trusted projects. No signing keys may be connected.\n\n'+(info.hasLock?'Uses npm ci with the project lockfile.':'No package-lock.json found: npm install will resolve current dependency versions and generate a lockfile.')});
+ if(answer.response!==1)return {cancelled:true};
+ jsBuildBusy=true;
+ try{
+  const log=await jsToolchain.installDependencies(app.getPath('userData'),editorProject,progress=>{
+   if(!event.sender.isDestroyed())event.sender.send('forge:compiler-progress',progress);
+  });
+  return {ok:true,log:log.slice(-3000)};
+ }finally{jsBuildBusy=false;}
+}
+async function jsBuild(data,event){
+ ensureEditorIdle();
+ if(signer)throw Error('Disconnect the local signer before compiling a JavaScript or TypeScript project.');
+ if(!editorProject||editorProject.kind!=='javascript')throw Error('Open a JavaScript/TypeScript project with package.json first.');
+ const info=await jsToolchain.projectInfo(editorProject);
+ const script=String(data?.script||'');
+ const selected=info.scripts.find(s=>s.name===script);
+ if(!selected)throw Error('The selected package.json build script no longer exists.');
+ const parent=BrowserWindow.fromWebContents(event.sender);
+ if(!parent)throw Error('Native Windows confirmation unavailable.');
+ const answer=await dialog.showMessageBox(parent,{title:'Run JavaScript/TypeScript Contract Build',type:'warning',
+  buttons:['Cancel','Run Build Script'],defaultId:0,cancelId:0,noLink:true,
+  message:'Run npm script '+script+' for '+info.name+'?',
+  detail:'Project command:\n'+selected.command+'\n\nThis command may execute arbitrary native code on your computer. Only approve code you trust. NEAR near-sdk-js is archived/deprecated and its contracts should not be trusted with valuable assets. This compiles locally, without deploying or signing any transaction.'});
+ if(answer.response!==1)return {cancelled:true};
+ const started=Date.now();
+ jsBuildBusy=true;
+ try{
+  const log=await jsToolchain.build(app.getPath('userData'),editorProject,script,progress=>{
+   if(!event.sender.isDestroyed())event.sender.send('forge:compiler-progress',progress);
+  });
+  const candidates=(await jsToolchain.wasmFiles(editorProject)).filter(x=>x.mtime>=started-3000);
+  if(candidates.length===0)throw Error('Build finished but no newly built .wasm was found in the selected project. Check your npm build script and outputs.');
+  let chosen=candidates[0].file;
+  if(candidates.length>1){
+   const pick=await dialog.showOpenDialog(parent,{title:'Multiple WASM files were built. Select the intended NEAR contract.',defaultPath:editorProject.root,
+    properties:['openFile'],filters:[{name:'Compiled NEAR WebAssembly',extensions:['wasm']}]});
+   if(pick.canceled)return {cancelled:true,log:log.slice(-3000)};
+   chosen=pick.filePaths[0];
+   if(!candidates.some(x=>path.resolve(x.file)===path.resolve(chosen)))throw Error('Select a newly built WASM from this project.');
+  }
+  const artifact=wasm(await readFile(chosen));
+  current={bytes:artifact,name:path.basename(chosen),hash:sha(artifact),source:chosen};
+  invalidate();
+  return {contract:contractMetadata(),log:log.slice(-4500),script};
+ }finally{jsBuildBusy=false;}
+}
 async function preflight(data){
- if(compilerSetupBusy||compilerBuildBusy)throw Error('Compiler is active.');
+ if(compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy)throw Error('Compiler is active.');
  await network();
  if(!current)throw Error('Import or compile a NEAR-compatible WASM contract first.');
  if(!signer)throw Error('Connect a dedicated FullAccess Testnet key locally.');
@@ -223,7 +336,7 @@ async function check(data){
    keyMode:details.p.keyMode,init:details.p.init.method||'none'};
 }
 async function deploy(data,event){
- if(compilerSetupBusy||compilerBuildBusy)throw Error('Compiler is active.');
+ if(compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy)throw Error('Compiler is active.');
  if(working)throw Error('Another deployment is running.');
  working=true;let attempted=false;
  try{
@@ -308,6 +421,13 @@ function register(){
  bind('compile-rust',compileRust);
  bind('compiler-status',compilerStatus);
  bind('compiler-setup',setupCompiler);
+ bind('project-open',chooseProject);
+ bind('source-open',openSource);
+ bind('source-save',saveSource);
+ bind('node-status',nodeStatus);
+ bind('node-setup',nodeSetup);
+ bind('js-install',jsInstallDependencies);
+ bind('js-build',jsBuild);
  bind('artifact',contractMetadata);
  bind('import-key',importKey);
  bind('key-file',importKeyFile);
