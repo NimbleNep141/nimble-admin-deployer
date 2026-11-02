@@ -45,7 +45,7 @@ function verifyProofTx(tx,{hash,account,initMethod='',initArgs='{}',expectedSha,
  if(!tx||typeof tx!=='object'||tx.transaction?.hash!==hash||tx.transaction?.receiver_id!==account)
   throw Error('Testnet proof transaction is missing or has the wrong hash/receiver.');
  const signed=tx.transaction;
- if(!accountId(signed.signer_id,'testnet')||typeof signed.public_key!=='string')
+ if(signed.signer_id!==account||!accountId(signed.signer_id,'testnet')||typeof signed.public_key!=='string')
   throw Error('Testnet proof signer identity is invalid.');
  const actions=Array.isArray(signed.actions)?signed.actions:[];
  const deploy=actions.filter(a=>actionType(a)==='DeployContract');
