@@ -43,9 +43,11 @@ test('isolated Docker build args never mount original project, use limited privi
  const online=isolated.dockerArgs({workspace:path.resolve('/tmp/workspace'),name:'forge-12345678-1234-1234-1234-123456789012',
   image:isolated.NODE_IMAGE,network:true,command:['npm','ci']});
  assert.ok(online.includes('--network=bridge'));
+ assert.ok(online.join(' ').includes('COREPACK_HOME=/work/.corepack'));
+ assert.match(require('node:fs').readFileSync(path.join(__dirname,'../src/isolated-builder.cjs'),'utf8'),/corepack','pnpm','install/);
 });
 test('secret exclusion rules match hidden files, wallets and private keys',()=>{
- for(const name of ['.env','.npmrc','.ssh/id_rsa','src/private-key.pem','src/wallet.json','src/seed.txt'])
+ for(const name of ['.env','.npmrc','.ssh/id_rsa','src/private-key.pem','src/wallet.json','src/seed.txt','src/secrets.json','src/api-key.json','src/mnemonic.txt'])
   assert.equal(isolated.allowed(name),false,name);
  for(const name of ['src/lib.rs','Cargo.toml','Cargo.lock','package.json','package-lock.json','src/index.ts'])
   assert.equal(isolated.allowed(name),true,name);

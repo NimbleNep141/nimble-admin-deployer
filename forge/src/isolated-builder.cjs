@@ -13,7 +13,7 @@ const RUST_IMAGE='sourcescan/cargo-near:0.22.0-rust-1.97.1@sha256:7467038bdddc86
 const HIDDEN=new Set(['.git','.github','.cargo','.rustup','.npm','.ssh','.aws','.config','.near','.env','.vscode','.idea','.next','.turbo']);
 const IGNORED=new Set(['node_modules','target','dist','build','out','coverage','vendor','venv','__pycache__']);
 const ALLOWED=new Set(['.rs','.js','.ts','.jsx','.tsx','.json','.toml','.lock','.md','.txt','.html','.css','.yaml','.yml','.wasm','.wit','.proto','.png','.svg','.webp','.jpg','.jpeg','.gitignore']);
-const SECRET=/^(\.env.*|\.npmrc|\.pypirc|id_rsa.*|.*\.(pem|key|p12|pfx|crt)|credentials(\..*)?|secret(\..*)?|.*wallet.*\.json|.*private.*key.*|.*seed.*)$/i;
+const SECRET=/^(\.env.*|\.npmrc|\.pypirc|id_rsa.*|.*\.(pem|key|p12|pfx|crt)|.*credentials?.*|.*secrets?.*|.*wallet.*|.*private.*|.*api[_-]?key.*|.*seed.*|.*mnemonic.*|.*keystore.*)$/i;
 const STAGE_LIMIT=65_000_000,FILE_LIMIT=14_000_000,ENTRY_LIMIT=7000;
 const HASH=x=>createHash('sha256').update(x).digest('hex');
 function allowed(rel){
@@ -66,7 +66,7 @@ function dockerArgs({workspace,image,command,network=false,name,user='1000:1000'
   '--tmpfs=/tmp:rw,nosuid,size=512m','--user='+user,
   '--mount','type=bind,source='+workspace+',target=/work',
   '-w','/work','-e','CI=true','-e','HOME=/tmp','-e','npm_config_cache=/tmp/.npm-cache',
-  '-e','CARGO_HOME=/work/.cargo-home'];
+  '-e','CARGO_HOME=/work/.cargo-home','-e','COREPACK_HOME=/work/.corepack'];
  if(image===RUST_IMAGE)flags.push('-e','CARGO_TARGET_DIR=/work/target');
  return [...flags,image,...command];
 }
@@ -134,14 +134,19 @@ async function build(project,userData,{kind,script,onLog=()=>{}}={}){
     command:['cargo','near','build','non-reproducible-wasm','--locked','--no-abi'],user:'0:0'},onLog,1200000);
   }else{
    const info=await projectInfo(project),hasLock=info.hasLock;
-   onLog({stage:'isolated',message:'Installing npm dependencies inside a disposable Linux container. Network is enabled for dependency downloads only.'});
-   // Legacy near-sdk-js needs its Linux postinstall compilers; other projects skip lifecycle scripts.
-   const dependencyCommand=hasLock?['npm','ci','--no-audit','--no-fund']:['npm','install','--no-audit','--no-fund'];
+   const pkg=JSON.parse(await fs.readFile(path.join(project.root,'package.json'),'utf8'));
+   const pnpmLock=Boolean(await fs.stat(path.join(project.root,'pnpm-lock.yaml')).catch(()=>null));
+   const usePnpm=info.legacySdk||pnpmLock||String(pkg.packageManager||'').startsWith('pnpm@');
+   const packageCommand=usePnpm?'pnpm via Corepack':'npm';
+   onLog({stage:'isolated',message:'Installing dependencies with '+packageCommand+' in a disposable Linux container. Network is enabled for downloads only.'});
+   // Legacy near-sdk-js runs a Linux-only postinstall; it must be isolated, explicitly approved and treated as experimental.
+   const dependencyCommand=usePnpm?['corepack','pnpm','install',...(pnpmLock?['--frozen-lockfile']:[])]:
+    (hasLock?['npm','ci','--no-audit','--no-fund']:['npm','install','--no-audit','--no-fund']);
    if(!info.legacySdk)dependencyCommand.push('--ignore-scripts');
    await dockerRun({workspace:staged.workspace,image,network:true,command:dependencyCommand},onLog,900000);
-   onLog({stage:'isolated',message:'Running selected project build script offline inside a restricted container.'});
+   onLog({stage:'isolated',message:'Building with '+packageCommand+' offline inside a restricted Linux container.'});
    await dockerRun({workspace:staged.workspace,image,network:false,
-    command:['npm','run',script]},onLog,900000);
+    command:usePnpm?['corepack','pnpm','run',script]:['npm','run',script]},onLog,900000);
   }
   const files=[];
   for(const candidate of await wasmCandidates(staged.workspace)){
