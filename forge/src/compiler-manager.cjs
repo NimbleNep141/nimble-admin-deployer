@@ -35,6 +35,37 @@ function environment(userData) {
  for(const key of Object.keys(env))if(/^(NEAR_PRIVATE_KEY|NEAR_SECRET_KEY|NEAR_SEED_PHRASE|NEAR_WALLET_SEED)$/i.test(key))delete env[key];
  return env;
 }
+// Release-build subprocesses must never inherit the entire Windows environment.
+// cargo-near supports forwarding variables named in Cargo.toml via passed_env.
+// Preserve only Windows process essentials and tool locations, not API tokens,
+// signing credentials, Docker daemon overrides, proxies, or arbitrary user vars.
+function productionEnvironment(userData,inherited=process.env){
+ const allowed=new Map([
+  ['PATH','PATH'],['PATHEXT','PATHEXT'],['SYSTEMROOT','SystemRoot'],
+  ['WINDIR','windir'],['COMSPEC','ComSpec'],['TEMP','TEMP'],['TMP','TMP'],
+  ['USERPROFILE','USERPROFILE'],['APPDATA','APPDATA'],
+  ['LOCALAPPDATA','LOCALAPPDATA'],['PROGRAMDATA','ProgramData'],
+  ['PROGRAMFILES','ProgramFiles'],['PROGRAMFILES(X86)','ProgramFiles(x86)'],
+  ['PROGRAMW6432','ProgramW6432'],['HOMEDRIVE','HOMEDRIVE'],
+  ['HOMEPATH','HOMEPATH'],['HOME','HOME'],['OS','OS']
+ ]);
+ const env={};
+ for(const [name,value] of Object.entries(inherited||{})){
+  const canonical=allowed.get(name.toUpperCase());
+  if(canonical&&typeof value==='string'&&value.length)env[canonical]=value;
+ }
+ const p=paths(userData);
+ env.PATH=[p.nearDir,path.join(p.cargoHome,'bin'),env.PATH||''].filter(Boolean).join(path.delimiter);
+ env.CARGO_HOME=p.cargoHome;
+ // RUSTUP_HOME is a toolchain directory, not a credential. Honor custom installs.
+ const rustupKey=Object.keys(inherited||{}).find(k=>k.toUpperCase()==='RUSTUP_HOME');
+ if(rustupKey&&typeof inherited[rustupKey]==='string')env.RUSTUP_HOME=inherited[rustupKey];
+ env.CARGO_TERM_COLOR='never';
+ env.NO_COLOR='1';
+ env.GIT_TERMINAL_PROMPT='0';
+ return env;
+}
+
 async function exists(file) {try{return (await fs.stat(file)).isFile();}catch{return false;}}
 function trimLog(s){return String(s||'').replace(/\x1b\[[0-9;]*m/g,'').slice(-22000)}
 function run(command,args,{cwd=os.homedir(),env=process.env,timeout=30_000,onLog}={}) {
@@ -188,4 +219,4 @@ async function setup(userData,onProgress=()=>{},{requireManaged=false}={}){
  }finally{await fs.rm(workDir,{recursive:true,force:true}).catch(()=>{});}
 }
 module.exports={TOOLCHAIN,TARGET,CARGO_NEAR,RUSTUP_BASE,NEAR_ARCHIVE,NEAR_SHA256,paths,environment,
- run,status,setup,cargoNearFromArchive,checkFinalUrl};
+ run,status,setup,cargoNearFromArchive,checkFinalUrl,productionEnvironment};
