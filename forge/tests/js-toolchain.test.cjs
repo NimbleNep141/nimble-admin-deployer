@@ -7,6 +7,7 @@ const os=require('node:os');
 const node=require('../src/js-toolchain.cjs');
 test('managed Windows Node release and official download paths are pinned',()=>{
  assert.equal(node.VERSION,'v22.21.0');
+ assert.equal(node.PINNED_SHA256,'84d31df6571c3c7156707265bf51e2a021656fa1584bf6f4486b792dcde54d7d');
  assert.match(node.BASE,/^https:\/\/nodejs\.org\/dist\/v22\.21\.0\/$/);
  assert.equal(node.manifestDigest('a'.repeat(64)+'  node-v22.21.0-win-x64.zip\n'),'a'.repeat(64));
  assert.throws(()=>node.manifestDigest('a'.repeat(64)+'  node-v22.22.0-win-x64.zip'),/missing/);
