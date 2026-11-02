@@ -31,3 +31,15 @@
 .compiler-progress-head b{color:#00ec97}
 .compiler-log{min-height:62px;max-height:140px;overflow-y:auto;white-space:pre-wrap;overflow-wrap:anywhere}
 @media(max-width:840px){.compiler-status-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Forge 0.3 local source editor and legacy NEAR JS/TS compiler */
+.js-compiler-panel,.code-editor-panel{max-width:920px}
+.js-status-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+.js-compiler-panel #js-compile{margin-top:15px}
+.source-project-label{font-family:Consolas,ui-monospace,monospace;font-size:10px;color:#91b8ae;overflow-wrap:anywhere;border:1px solid #29444b;background:#0b2028;padding:10px 12px;border-radius:7px;margin:8px 0 14px}
+.source-editor-head{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:9px;letter-spacing:1.2px;font-weight:800;color:#7ca7a8;margin:13px 0 8px}
+.source-editor-head b{color:#00ec97}
+.source-code{width:100%;min-height:300px;box-sizing:border-box;display:block;resize:vertical;background:#07151d;border:1px solid #355459;border-radius:8px;padding:14px;color:#d9fff2;font:12px/1.6 Consolas,'Cascadia Code',ui-monospace,monospace;tab-size:2;white-space:pre;overflow:auto}
+.source-code:focus{border-color:#00ec97;outline:2px solid rgba(0,236,151,.15)}
+.source-code:disabled{opacity:.62;cursor:not-allowed}
+@media(max-width:840px){.js-status-grid{grid-template-columns:1fr}}
