@@ -11,9 +11,14 @@ async function gitSnapshot(project,run=compilerManager.run){
   throw Error('Production reproducible builds require an open Rust project.');
  const invoke=(args,cwd=project.root)=>run('git',args,{cwd,timeout:15_000});
  let repoRoot;
- try{repoRoot=(await invoke(['rev-parse','--show-toplevel'])).trim();}
- catch{throw Error('Production builds require Git installed and the Rust project committed to a Git repository.');}
- const relative=path.relative(repoRoot,project.root);
+ try{
+  // Git for Windows may report MSYS/forward-slash or short-name paths.
+  // Canonicalize both sides before comparing rather than comparing raw CLI output.
+  const raw=(await invoke(['rev-parse','--show-toplevel'])).trim();
+  repoRoot=await fs.realpath(raw);
+ }catch{throw Error('Production builds require Git installed and a readable committed Git repository root.');}
+ const projectRoot=await fs.realpath(project.root);
+ const relative=path.relative(repoRoot,projectRoot);
  if(relative.startsWith('..')||path.isAbsolute(relative))
   throw Error('Project folder must be inside the Git repository selected for reproducible compilation.');
  const commit=(await invoke(['rev-parse','--verify','HEAD'])).trim();
