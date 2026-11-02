@@ -43,3 +43,11 @@
 .source-code:focus{border-color:#00ec97;outline:2px solid rgba(0,236,151,.15)}
 .source-code:disabled{opacity:.62;cursor:not-allowed}
 @media(max-width:840px){.js-status-grid{grid-template-columns:1fr}}
+
+/* Forge v0.4: explicit artifact review, isolated compiler and state-safe upgrade */
+.isolated-compiler-panel{max-width:920px}
+.isolated-compiler-panel .compiler-log{margin:12px 0 14px;white-space:pre-wrap}
+.upgrade-steps{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
+.upgrade-steps span{font-size:10px;font-weight:700;background:#0b2028;border:1px solid #29444b;color:#bceadd;border-radius:8px;padding:7px 9px}
+#upgrade-start{margin:7px 0 12px}
+#upgrade-ack-row{padding:9px 12px;background:#17252a;border-radius:8px}

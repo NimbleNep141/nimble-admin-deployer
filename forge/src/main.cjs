@@ -1,6 +1,6 @@
 'use strict';
 const {app,BrowserWindow,ipcMain,dialog,session,shell}=require('electron');
-const {readFile,readdir,stat}=require('node:fs/promises');
+const {readFile,readdir,stat,rm}=require('node:fs/promises');
 const path=require('node:path');
 const {spawn}=require('node:child_process');
 const {randomUUID,createHash}=require('node:crypto');
@@ -8,11 +8,12 @@ const {Library}=require('./library.cjs');
 const compilerManager=require('./compiler-manager.cjs');
 const sourceEditor=require('./source-editor.cjs');
 const jsToolchain=require('./js-toolchain.cjs');
+const isolatedBuilder=require('./isolated-builder.cjs');
 const {YOCTO,accountId,fmt,wasm,sha,plan,actionsFor,displayActions}=require('./core.cjs');
 
 const RPC='https://rpc.testnet.near.org';
 const EMPTY_CODE='11111111111111111111111111111111';
-let current=null,signer=null,previewRecord=null,pendingTarget=null,working=false,library=null,compilerSetupBusy=false,compilerBuildBusy=false,jsSetupBusy=false,jsBuildBusy=false,editorProject=null,editorLoaded=null;
+let current=null,signer=null,previewRecord=null,pendingTarget=null,working=false,library=null,compilerSetupBusy=false,compilerBuildBusy=false,jsSetupBusy=false,jsBuildBusy=false,isolateBusy=false,editorProject=null,editorLoaded=null;
 function invalidate(){previewRecord=null;}
 const result=(code,data)=>({ok:true,data});
 function safeError(e){
@@ -55,7 +56,7 @@ async function price(){
  return BigInt(n);
 }
 async function importKey({owner,secret}){
- if(compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy)throw Error('Compiler active. Disconnect signer until compilation is complete.');
+ if(compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy||isolateBusy)throw Error('Compiler active. Disconnect signer until compilation is complete.');
  if(working)throw Error('Deployment in progress. Do not change the signer.');
  owner=accountId(owner);
  if(typeof secret!=='string'||secret.length>512||!/^ed25519:[1-9A-HJ-NP-Za-km-z]{70,110}$/.test(secret.trim()))
@@ -72,7 +73,7 @@ async function importKey({owner,secret}){
  return {owner,publicKey:publicKey.toString(),balance:fmt(BigInt(state?.amount||'0'))};
 }
 async function importKeyFile(owner){
- if(compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy)throw Error('Compiler active.');
+ if(compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy||isolateBusy)throw Error('Compiler active.');
  if(working)throw Error('Deployment in progress.');
  accountId(owner);
  const choice=await dialog.showOpenDialog({title:'Select a testnet-only NEAR key file',properties:['openFile'],
@@ -90,7 +91,7 @@ async function importKeyFile(owner){
  return importKey({owner,secret:key});
 }
 async function openWasm(){
- if(compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy)throw Error('Compiler is active.');
+ if(compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy||isolateBusy)throw Error('Compiler is active.');
  if(working)throw Error('Deployment in progress.');
  const choice=await dialog.showOpenDialog({title:'Import any NEAR-compatible compiled contract',properties:['openFile'],
    filters:[{name:'NEAR WebAssembly',extensions:['wasm']}]});
@@ -104,11 +105,11 @@ async function openWasm(){
 }
 function contractMetadata(){
  if(!current)return null;
- return {name:current.name,bytes:current.bytes.length,hash:current.hash,source:current.source};
+ return {name:current.name,bytes:current.bytes.length,hash:current.hash,source:current.source,provenance:current.provenance||null};
 }
 async function compilerStatus(){return compilerManager.status(app.getPath('userData'));}
 async function setupCompiler(_unused,event){
- if(working||compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy)throw Error('Another action is running.');
+ if(working||compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy||isolateBusy)throw Error('Another action is running.');
  if(signer)throw Error('Disconnect the local signer before installing compiler tools.');
  const parent=BrowserWindow.fromWebContents(event.sender);
  if(!parent)throw Error('Native Windows confirmation unavailable.');
@@ -122,14 +123,49 @@ async function setupCompiler(_unused,event){
   if(!event.sender.isDestroyed())event.sender.send('forge:compiler-progress',progress);
  });}finally{compilerSetupBusy=false;}
 }
+async function selectCompiledWasm(candidates,parent,origin){
+ if(!Array.isArray(candidates)||!candidates.length)throw Error('No newly generated contract WASM was found.');
+ if(!parent)throw Error('Native contract selection unavailable.');
+ let selected=candidates[0];
+ if(candidates.length>1){
+  const pick=await dialog.showOpenDialog(parent,{title:'Select the correct newly compiled NEAR WASM',
+   defaultPath:selected.file,properties:['openFile'],filters:[{name:'NEAR WebAssembly',extensions:['wasm']}]});
+  if(pick.canceled)return {cancelled:true};
+  selected=candidates.find(x=>path.resolve(x.file)===path.resolve(pick.filePaths[0]));
+  if(!selected)throw Error('Only fresh WASM files from this completed build can be selected.');
+ }
+ const first=wasm(await readFile(selected.file));
+ const firstHash=sha(first);
+ const choice=await dialog.showMessageBox(parent,{title:'Review Compiled Contract Artifact',type:'warning',
+  buttons:['Cancel','Use This WASM'],defaultId:0,cancelId:0,noLink:true,
+  message:'Select '+path.basename(selected.file)+' for deployment?',
+  detail:'CONTRACT FILE: '+(selected.name||selected.file)+
+   '\nSHA-256: '+firstHash+
+   '\nBYTES: '+first.length+
+   '\nBUILD: '+(origin?.mode||'local')+
+   '\nPROJECT: '+(origin?.project||'not recorded')+
+   '\n\nThis only loads the WASM. It does not deploy or sign any transaction.'});
+ if(choice.response!==1)return {cancelled:true};
+ const fresh=wasm(await readFile(selected.file));
+ if(sha(fresh)!==firstHash)throw Error('WASM changed during artifact review. Rebuild and select again.');
+ current={bytes:fresh,name:path.basename(selected.file),hash:firstHash,
+  source:origin?.mode==='isolated'?(origin.project+' / '+(selected.name||path.basename(selected.file))):selected.file,
+  provenance:{mode:origin?.mode||'local',kind:origin?.kind||'unknown',project:origin?.project||null,
+   sourceSha256:origin?.sourceSha256||null,image:origin?.image||null,script:origin?.script||null}};
+ invalidate();return {contract:contractMetadata()};
+}
 async function compileRust(_options,event){
- if(working||compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy)throw Error('A compiler operation or deployment is active.');
+ if(working||compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy||isolateBusy)throw Error('A compiler operation or deployment is active.');
  if(signer)throw Error('Disconnect the local signer before compiling source.');
  const tools=await compilerStatus();
  if(!tools.ready)throw Error('Compiler not ready. Open Compile / Import and install/repair tools.');
- const selected=await dialog.showOpenDialog({title:'Choose trusted Rust NEAR project containing Cargo.toml',properties:['openDirectory']});
- if(selected.canceled)return {cancelled:true};
- const root=selected.filePaths[0];
+ let root=editorProject?.kind==='rust'?editorProject.root:null;
+ if(editorProject&&editorProject.kind!=='rust')throw Error('Editor contains a JS/TS project. Open a Rust project first.');
+ if(!root){
+  const selected=await dialog.showOpenDialog({title:'Choose trusted Rust NEAR project containing Cargo.toml',properties:['openDirectory']});
+  if(selected.canceled)return {cancelled:true};
+  root=selected.filePaths[0];
+ }
  if(!(await stat(path.join(root,'Cargo.toml')).catch(()=>null)))throw Error('Folder must contain a Cargo.toml.');
  // Cargo build scripts and dependencies can execute native code on the host OS.
  const parent=BrowserWindow.fromWebContents(event.sender);
@@ -142,6 +178,7 @@ async function compileRust(_options,event){
  });
  if(choice.response!==1)return {cancelled:true};
  compilerBuildBusy=true;
+ const buildStart=Date.now();
  try{
  // Rust Cargo build.rs and dependencies can execute native code. Only compile trusted sources.
  const output=await new Promise((resolve,reject)=>{
@@ -170,17 +207,16 @@ async function compileRust(_options,event){
    }
    return result;
  }
- const files=await scan(path.join(root,'target'));
- files.sort((a,b)=>b.mtime-a.mtime);
- const found=files.find(x=>x.file.includes('near')||x.file.includes('release'));
- if(!found)throw Error('Cargo completed but no .wasm found under the project target directory. Import the WASM manually.');
- const b=wasm(await readFile(found.file));
- current={bytes:b,name:path.basename(found.file),hash:sha(b),source:found.file};invalidate();
- return {contract:contractMetadata(),log:output.log};
+ const files=(await scan(path.join(root,'target'))).filter(x=>x.mtime>=buildStart-2000);
+ if(!files.length)throw Error('Compilation completed but produced no new WASM. Forge will not reuse an older artifact.');
+ files.sort((a,b)=>a.file.localeCompare(b.file));
+ const candidates=files.map(x=>({...x,name:path.relative(root,x.file).replace(/\\/g,'/')}));
+ const picked=await selectCompiledWasm(candidates,parent,{mode:'native',kind:'rust',project:root,script:'cargo near build'});
+ return {...picked,log:output.log};
  }finally{compilerBuildBusy=false;}
 }
 function ensureEditorIdle(){
- if(working||compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy)
+ if(working||compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy||isolateBusy)
   throw Error('A compiler or deployment operation is in progress.');
 }
 async function chooseProject(){
@@ -188,8 +224,8 @@ async function chooseProject(){
  const selected=await dialog.showOpenDialog({title:'Open a Rust, JavaScript, or TypeScript contract project',properties:['openDirectory']});
  if(selected.canceled)return {cancelled:true};
  const project=await sourceEditor.openProject(selected.filePaths[0]);
- editorProject=project;editorLoaded=null;
  const config=project.kind==='javascript'?await jsToolchain.projectInfo(project):null;
+ editorProject=project;editorLoaded=null;current=null;invalidate();
  return {root:project.root,kind:project.kind,files:project.files,config};
 }
 async function openSource(rel){
@@ -213,7 +249,8 @@ async function saveSource(data,event){
  if(answer.response!==1)return {cancelled:true};
  const result=await sourceEditor.saveSource(editorProject,editorLoaded.file,data.text,editorLoaded.hash,app.getPath('userData'));
  editorLoaded.hash=result.hash;
- return {file:result.file,hash:result.hash,unchanged:result.unchanged,backupCreated:Boolean(result.backup)};
+ if(!result.unchanged){current=null;invalidate();}
+ return {file:result.file,hash:result.hash,unchanged:result.unchanged,backupCreated:Boolean(result.backup),artifactInvalidated:!result.unchanged};
 }
 async function nodeStatus(){
  return jsToolchain.status(app.getPath('userData'));
@@ -277,25 +314,57 @@ async function jsBuild(data,event){
    if(!event.sender.isDestroyed())event.sender.send('forge:compiler-progress',progress);
   });
   const candidates=(await jsToolchain.wasmFiles(editorProject)).filter(x=>x.mtime>=started-3000);
-  if(candidates.length===0)throw Error('Build finished but no newly built .wasm was found in the selected project. Check your npm build script and outputs.');
-  let chosen=candidates[0].file;
-  if(candidates.length>1){
-   const pick=await dialog.showOpenDialog(parent,{title:'Multiple WASM files were built. Select the intended NEAR contract.',defaultPath:editorProject.root,
-    properties:['openFile'],filters:[{name:'Compiled NEAR WebAssembly',extensions:['wasm']}]});
-   if(pick.canceled)return {cancelled:true,log:log.slice(-3000)};
-   chosen=pick.filePaths[0];
-   if(!candidates.some(x=>path.resolve(x.file)===path.resolve(chosen)))throw Error('Select a newly built WASM from this project.');
-  }
-  const artifact=wasm(await readFile(chosen));
-  current={bytes:artifact,name:path.basename(chosen),hash:sha(artifact),source:chosen};
-  invalidate();
-  return {contract:contractMetadata(),log:log.slice(-4500),script};
+  if(!candidates.length)throw Error('Build completed but did not produce fresh WASM. Older files will not be imported.');
+  const options=candidates.map(x=>({...x,name:path.relative(editorProject.root,x.file).replace(/\\/g,'/')}));
+  const picked=await selectCompiledWasm(options,parent,{mode:'native',kind:'javascript',project:editorProject.root,script});
+  return {...picked,log:log.slice(-4500),script};
  }finally{jsBuildBusy=false;}
 }
+async function isolatedStatus(){return isolatedBuilder.dockerStatus();}
+async function isolatedBuild(data,event){
+ ensureEditorIdle();
+ if(signer)throw Error('Disconnect the Testnet signer before an isolated build.');
+ if(!editorProject)throw Error('Open a Rust or JS/TS source project first.');
+ const kind=editorProject.kind,script=String(data?.script||'');
+ const ready=await isolatedBuilder.dockerStatus();
+ if(!ready.ready)throw Error(ready.reason);
+ const parent=BrowserWindow.fromWebContents(event.sender);
+ if(!parent)throw Error('Native Windows approval unavailable.');
+ const warning=kind==='javascript'?
+  'Dependencies will be installed in a disposable Linux container with network access. Legacy near-sdk-js may run install scripts. The build stage will be offline.':
+  'Cargo.lock is required. Rust dependencies are fetched in a disposable Linux container with network access, then compiled offline.';
+ const selected=await dialog.showMessageBox(parent,{title:'Review Isolated NEAR Build',type:'warning',
+  buttons:['Cancel','Build in Restricted Container'],defaultId:0,cancelId:0,noLink:true,
+  message:'Build source in a disposable Docker Desktop Linux container?',
+  detail:'PROJECT: '+editorProject.root+'\nLANGUAGE: '+kind+'\nBUILD SCRIPT: '+(kind==='javascript'?script:'cargo near build')+
+   '\n\n'+warning+
+   '\n\nForge copies selected source files into a temporary workspace, excluding wallet keys, environment files, and dependency directories. Containers have restricted capabilities, CPU, memory and network access, but are not a perfect security boundary. Nothing is deployed on-chain.'});
+ if(selected.response!==1)return {cancelled:true};
+ isolateBusy=true;let result=null;
+ try{
+  result=await isolatedBuilder.build(editorProject,app.getPath('userData'),{kind,script,
+   onLog:progress=>{if(!event.sender.isDestroyed())event.sender.send('forge:compiler-progress',progress);}});
+  const picked=await selectCompiledWasm(result.files,parent,{mode:'isolated',kind,project:editorProject.root,
+   sourceSha256:result.staged.sourceSha256,image:result.image,script:result.script});
+  return {...picked,log:'Restricted container built '+result.files.length+' new WASM artifact(s). Source fingerprint: '+result.staged.sourceSha256};
+ }finally{
+  if(result?.staged?.stage)await rm(result.staged.stage,{recursive:true,force:true}).catch(()=>{});
+  isolateBusy=false;
+ }
+}
 async function preflight(data){
- if(compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy)throw Error('Compiler is active.');
+ if(compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy||isolateBusy)throw Error('Compiler is active.');
  await network();
  if(!current)throw Error('Import or compile a NEAR-compatible WASM contract first.');
+ if(current.provenance?.sourceSha256){
+  if(!editorProject||current.provenance.project!==editorProject.root)
+   throw Error('The selected WASM no longer matches the current source project. Reopen and compile the intended project.');
+  const snapshot=await isolatedBuilder.stageProject(editorProject,app.getPath('userData'));
+  try{
+   if(snapshot.sourceSha256!==current.provenance.sourceSha256)
+    throw Error('Source files changed after the selected WASM was compiled. Recompile before deployment.');
+  }finally{await rm(snapshot.stage,{recursive:true,force:true}).catch(()=>{});}
+ }
  if(!signer)throw Error('Connect a dedicated FullAccess Testnet key locally.');
  const storageCost=await price();
  const p=plan(data,current.bytes,storageCost);
@@ -339,7 +408,7 @@ async function check(data){
    keyMode:details.p.keyMode,init:details.p.init.method||'none'};
 }
 async function deploy(data,event){
- if(compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy)throw Error('Compiler is active.');
+ if(compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy||isolateBusy)throw Error('Compiler is active.');
  if(working)throw Error('Another deployment is running.');
  working=true;let attempted=false;
  try{
@@ -348,6 +417,7 @@ async function deploy(data,event){
     throw Error('Configuration changed. Re-run Preflight before deploying.');
   const report=await preflight(data.config);
   const p=report.p;
+  if(report.upgrade&&!data.ackMigration)throw Error('Explicitly acknowledge stored-state migration risks before upgrading an existing contract.');
   if(data.confirm!==p.target)throw Error('Type the exact contract address to approve.');
   if(p.target!==previewRecord.target||signer.owner!==previewRecord.owner||current.hash!==previewRecord.hash)
     throw Error('Signer, contract or target changed. Re-run Preflight.');
@@ -357,7 +427,7 @@ async function deploy(data,event){
   const selection=await dialog.showMessageBox(parent,{title:'Nearium Forge · Sign Testnet Deployment',type:'warning',
     buttons:['Cancel','Deploy Contract'],defaultId:0,cancelId:0,noLink:true,
     message:(report.upgrade?'Replace code on ':'Deploy to ')+p.target+'?',
-    detail:'NETWORK: NEAR TESTNET\nWASM SHA-256: '+p.wasmHash+
+    detail:'NETWORK: NEAR TESTNET\nPREVIOUS CODE HASH: '+(report.existingCodeHash||'none')+'\nNEW WASM SHA-256: '+p.wasmHash+'\nBUILD MODE: '+(current.provenance?.mode||'imported / unverified')+'\nSTORAGE MIGRATION: NOT AUTOMATIC'+
       '\nACTIONS:\n'+report.actions.map(x=>'  • '+x).join('\n')+
       '\n\nPrivate signing stays on this computer. Failed transactions may create or leave a funded account. Do not retry blindly.'});
   if(selection.response!==1)return {cancelled:true};
@@ -422,6 +492,8 @@ function register(){
  bind('inspect',inspectContract);
  bind('open-wasm',openWasm);
  bind('compile-rust',compileRust);
+ bind('isolated-status',isolatedStatus);
+ bind('isolated-build',isolatedBuild);
  bind('compiler-status',compilerStatus);
  bind('compiler-setup',setupCompiler);
  bind('project-open',chooseProject);

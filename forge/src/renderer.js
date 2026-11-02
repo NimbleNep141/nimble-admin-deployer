@@ -32,7 +32,7 @@ function showView(next){
  document.querySelectorAll('.nav-link').forEach(n=>n.classList.toggle('selected',n.dataset.view===next));
  setText('workspace-title',names[next]);setText('workspace-desc',descriptions[next]);setText('crumb-page',next.toUpperCase());
  if(next==='library')refreshLibrary();
- if(next==='build'){refreshCompiler();refreshNodeStatus();}
+ if(next==='build'){refreshCompiler();refreshNodeStatus();refreshIsolationStatus();}
  if(next==='verify'&&!el('verify-address').value.trim())el('verify-address').value=targetId();
 }
 function targetId(){
@@ -61,7 +61,8 @@ function invalidate(){
 function updateDeploy(){
  const exact=Boolean(review&&el('confirmation').value.trim()===review.target);
  const ack=el('ack').checked;
- const enabled=!working&&Boolean(review)&&exact&&ack;
+ const migrationReady=!review?.upgrade||el('upgrade-ack').checked;
+ const enabled=!working&&Boolean(review)&&exact&&ack&&migrationReady;
  el('deploy').disabled=!enabled;
  const hint=working?'An operation is in progress. Do not submit again.':
    !artifact?'Import a contract WASM or compile a Rust project first.':
@@ -69,20 +70,21 @@ function updateDeploy(){
    !review?'Run Preflight Check to verify target and build the transaction preview.':
    !exact?'Type the exact target address from the preflight results.':
    !ack?'Check the transaction review and acknowledgment box.':
+   !migrationReady?'Review and acknowledge state migration risks before replacing this contract.':
    'Ready. The next step is a native Windows confirmation; Cancel is the default.';
  setText('deploy-hint',hint);
 }
 function busy(value){
  working=value;
- for(const id of ['wasm-import','rust-compile','wasm-import-build','rust-compile-build','key-connect','key-file','key-disconnect','preflight','save-current','saved-load','saved-delete','saved-refresh','saved-verify','verify-button','deploy'])el(id).disabled=value;
- if(!value)updateDeploy();
+ for(const id of ['wasm-import','rust-compile','wasm-import-build','rust-compile-build','key-connect','key-file','key-disconnect','preflight','save-current','saved-load','saved-delete','saved-refresh','saved-verify','verify-button','deploy','isolated-build','isolated-check','upgrade-start'])el(id).disabled=value;
+ if(!value){el('upgrade-start').disabled=!artifact||sourceDirty;updateDeploy();}
 }
 function artifactUpdate(meta){
  artifact=meta;lastDeployment=null;
  if(meta){
   setText('artifact-status','WASM VERIFIED');el('artifact-status').className='status-dot live';
   setText('mini-wasm',meta.name);setText('artifact-detail',meta.name+' · '+meta.bytes.toLocaleString('en-US')+' bytes\nSHA-256 '+meta.hash);
-  setText('build-detail','Name: '+meta.name+'\nSize: '+meta.bytes.toLocaleString('en-US')+' bytes\nSHA-256: '+meta.hash+'\nSource: '+meta.source);
+  setText('build-detail','Name: '+meta.name+'\nSize: '+meta.bytes.toLocaleString('en-US')+' bytes\nSHA-256: '+meta.hash+'\nSource: '+meta.source+'\nBUILD MODE: '+(meta.provenance?.mode||'imported / unverified')+'\nSOURCE FINGERPRINT: '+(meta.provenance?.sourceSha256||'not recorded'));
   if(!el('save-name').value.trim())el('save-name').value=meta.name.replace(/\.wasm$/i,'');
  }else{
   setText('mini-wasm','None selected');
@@ -90,6 +92,7 @@ function artifactUpdate(meta){
   setText('artifact-detail','No compiled WASM imported.');
   setText('build-detail','No WASM loaded.');
  }
+ el('upgrade-start').disabled=!meta;
  invalidate();
 }
 async function importWasm(){
@@ -135,6 +138,7 @@ window.forge.onCompilerProgress(progress=>{
  setText('compiler-stage',String(progress.stage||'RUNNING').toUpperCase());
  setText('compiler-log',progress.message);
  if(progress.stage==='node'||progress.stage==='javascript')setText('js-log',progress.message);
+ if(progress.stage==='isolated')setText('isolated-log',progress.message);
 });
 
 let sourceProject=null,sourceFile=null,sourceDirty=false,jsUIBusy=false;
@@ -143,6 +147,7 @@ function setSourceDirty(changed){
  setText('source-dirty',!sourceFile?'NO FILE':sourceDirty?'UNSAVED CHANGES':'SAVED');
  setText('source-status',sourceProject?(sourceDirty?'UNSAVED':'LOCAL PROJECT'):'NO PROJECT');
  el('source-save').disabled=!sourceDirty;
+ el('upgrade-start').disabled=sourceDirty||!artifact;
 }
 function selectOptions(select,items){
  select.replaceChildren();
@@ -153,7 +158,7 @@ function selectOptions(select,items){
  }
 }
 function fillProject(project){
- sourceProject=project;sourceFile=null;setSourceDirty(false);
+ sourceProject=project;sourceFile=null;artifactUpdate(null);setSourceDirty(false);
  el('source-code').value='';el('source-code').disabled=true;
  setText('source-project-path',project.root+' · '+(project.kind==='rust'?'RUST':'JAVASCRIPT / TYPESCRIPT'));
  selectOptions(el('source-file'),project.files.map(f=>({value:f,label:f})));
@@ -197,8 +202,9 @@ async function saveSourceUI(){
   const result=await call('sourceSave',{file:sourceFile.file,text:value});
   if(result.cancelled)return;
   sourceFile={...sourceFile,text:value,hash:result.hash};
-  setSourceDirty(false);
-  notify(result.unchanged?'No source changes detected.':'Source code saved. Previous version backed up locally.');
+  if(result.artifactInvalidated)artifactUpdate(null);
+  setSourceDirty(el('source-code').value!==value);
+  notify(result.unchanged?'No source changes detected.':'Source saved; older WASM cleared. Recompile before deployment.');
  }catch(e){notify('Save failed: '+e.message,true);}
 }
 async function discardSourceUI(){
@@ -243,6 +249,38 @@ async function jsAction(action,label,arg=null){
  }
 }
 
+async function refreshIsolationStatus(){
+ try{
+  const state=await call('isolatedStatus');
+  el('isolation-status').className='status-dot '+(state.ready?'live':'neutral');
+  setText('isolation-status',state.ready?'DOCKER READY':'DOCKER NEEDED');
+  setText('isolated-log',state.reason);
+ }catch(e){setText('isolation-status','CHECK FAILED');setText('isolated-log',e.message);}
+}
+async function runIsolatedBuild(){
+ if(!sourceProject){notify('Open a local source project first.',true);return;}
+ if(sourceDirty){notify('Save or discard source changes before building.',true);return;}
+ busy(true);setText('isolated-log','Preparing restricted Docker build. Windows approval will appear.');
+ try{
+  const result=await call('isolatedBuild',{script:el('js-build-script').value});
+  if(result.cancelled){setText('isolated-log','Isolated build cancelled. No artifact was imported.');return;}
+  if(result.contract){
+   artifactUpdate(result.contract);
+   setText('isolated-log',result.log||'Isolated build completed. Contract imported.');
+   notify('Compiled WASM selected and verified. Review its hash and proceed to preflight before any deployment.');
+  }
+ }catch(e){setText('isolated-log',e.message);notify('Isolated build failed: '+e.message,true);}
+ finally{busy(false);}
+}
+function startUpgradeReview(){
+ if(!artifact){notify('Compile or import a WASM before reviewing an upgrade.',true);return;}
+ if(sourceDirty){notify('Save source edits and recompile before reviewing an upgrade.',true);return;}
+ el('mode').value='existing';el('replace-code').checked=false;
+ el('init-method').value='';el('init-args').value='{}';el('init-deposit').value='0';
+ el('ack').checked=false;el('upgrade-ack').checked=false;display('upgrade-ack-row',false);
+ el('confirmation').value='';modeUpdate();invalidate();showView('deploy');
+ notify('Review the target account, compare the old on-chain code hash with the selected WASM, check upgrade acknowledgments, and run preflight. No transaction has been sent.');
+}
 async function compileRust(){
  if(sourceDirty){notify('Save or discard source changes before compiling Rust. The unsaved editor buffer is not part of a build.',true);return;}
  busy(true);notify('Choose a trusted Rust project. Cargo build scripts can run code on your PC. Never compile unknown projects.');
@@ -285,16 +323,18 @@ async function doPreflight(){
     'WASM SHA-256             '+report.artifact.hash,
     'AVAILABLE BALANCE       '+report.spendable+' NEAR',
     'REQUIRED + GAS RESERVE  '+report.required+' NEAR',
-    'UPGRADE                 '+(report.upgrade?'YES, existing code will be replaced':'NO'),
+    'UPGRADE                 '+(report.upgrade?'YES, existing code will be replaced':'NO')+(report.upgrade?'\nPREVIOUS CODE HASH      '+(report.existingCodeHash||'unavailable')+'\nSOURCE FINGERPRINT      '+(report.artifact?.provenance?.sourceSha256||'not recorded')+'\nSTORAGE MIGRATION       NOT AUTOMATIC':''),
     'ACCOUNT POLICY          '+report.keyMode,
     'ACTIONS\n  '+report.actions.join('\n  '),
     '\nPREFLIGHT PASSED. A transaction has NOT been signed or sent.'
   ].join('\n');
+  display('upgrade-ack-row',Boolean(report.upgrade));el('upgrade-ack').checked=false;
   setReview(txt,'good');
   setText('preflight-status','READY');el('preflight-status').className='status-dot live';
   setText('target',report.target);setText('pipeline-hint','Preflight passed. Review and confirm the exact account.');
   notify('Preflight passed. Check every action before deploying.');
  }catch(e){
+  display('upgrade-ack-row',false);
   setReview('PREFLIGHT BLOCKED\n'+e.message+'\nNo transaction was submitted.','error');
   setText('preflight-status','BLOCKED');el('preflight-status').className='status-dot error';
   notify(e.message,true);
@@ -307,7 +347,7 @@ async function doDeploy(){
  busy(true);
  setResult('Opening native Windows confirmation. Nothing is signed or sent until you choose Deploy Contract.');
  try{
-  const report=await call('deploy',{config:config(),token:review.token,confirm:el('confirmation').value.trim(),ack:true});
+  const report=await call('deploy',{config:config(),token:review.token,confirm:el('confirmation').value.trim(),ack:true,ackMigration:el('upgrade-ack').checked});
   if(report.cancelled){setResult('Cancelled by user. No transaction was submitted.');notify('Deployment cancelled.');return;}
   submittedTarget=report.target;
   lastDeployment={address:report.target,txHash:report.txHash,verified:report.verified};
@@ -321,7 +361,7 @@ async function doDeploy(){
   setText('verify-address',report.target);
   notify(report.verified?'Contract deployed. On-chain WASM hash verified.':'A transaction was attempted but not fully verified. Inspect receipts and do not retry.',!report.verified);
  }catch(e){setResult('DEPLOYMENT DID NOT CONFIRM\n'+e.message+'\nNever retry without verifying account and receipts on NEAR Testnet.','error');notify(e.message,true)}
- finally{review=null;el('ack').checked=false;el('confirmation').value='';busy(false);updateDeploy()}
+ finally{review=null;el('ack').checked=false;el('upgrade-ack').checked=false;display('upgrade-ack-row',false);el('confirmation').value='';busy(false);updateDeploy()}
 }
 async function refreshLibrary(){
  try{
@@ -398,6 +438,7 @@ for(const id of ['rust-compile','rust-compile-build'])wire(id,compileRust);
 wire('toggle-secret',()=>{el('secret').type=el('secret').type==='password'?'text':'password'});
 wire('key-connect',()=>connectKey(false));wire('key-file',()=>connectKey(true));wire('key-disconnect',disconnectKey);
 wire('compiler-check',refreshCompiler);wire('compiler-install',setupCompilerUI);
+wire('isolated-check',refreshIsolationStatus);wire('isolated-build',runIsolatedBuild);wire('upgrade-start',startUpgradeReview);
 wire('node-check',refreshNodeStatus);
 wire('node-install',()=>jsAction('nodeSetup','Managed Node.js installation'));
 wire('js-dependencies',()=>jsAction('jsInstall','Project dependency setup'));
@@ -419,7 +460,7 @@ for(const id of inputs){
   invalidate();
  });
 }
-for(const id of ['confirmation','ack']){
+for(const id of ['confirmation','ack','upgrade-ack']){
  for(const event of ['input','change'])el(id).addEventListener(event,updateDeploy);
 }
 async function initialize(){

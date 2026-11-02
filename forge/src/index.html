@@ -6,7 +6,7 @@
 <div class="app-shell">
 <header class="topbar">
   <div class="brand"><div class="brand-mark"><img class="brand-logo" src="./assets/nearium-forge-logo.png" alt="Nearium Forge logo"/></div><div class="brand-type"><b>NEARIUM <em>FORGE</em></b><small>SMART CONTRACT DEPLOYMENT STUDIO</small></div></div>
-  <div class="top-right"><span class="env-pill"><span class="live-dot"></span> NEAR TESTNET</span><span class="top-divider"></span><span class="version">DESKTOP ALPHA v0.3.0</span></div>
+  <div class="top-right"><span class="env-pill"><span class="live-dot"></span> NEAR TESTNET</span><span class="top-divider"></span><span class="version">DESKTOP ALPHA v0.4.0</span></div>
 </header>
 <div id="home" class="page">
   <div class="home-hero">
@@ -85,7 +85,7 @@
                 <label for="key-mode">New account ownership</label><select id="key-mode"><option value="controlled">Recoverable: add existing signer key</option><option value="keyless">Immutable: no access keys (advanced)</option></select>
                 <p class="field-info warning-text" id="keyless-warning" hidden>Keyless accounts cannot be upgraded or repaired through ordinary access-key transactions. Incorrect initialization can permanently strand funds.</p>
               </div>
-              <div id="existing-options" hidden><label class="checkbox-row"><input type="checkbox" id="replace-code"/> I approve replacing code already installed on this account.</label><p class="field-info warning-text">Editing code locally does not alter the blockchain. After compiling the new WASM, explicitly approve replacement on your existing contract account. Upgrades can break state or require migrations; only a full-access key authorized for the target account can replace its code.</p></div>
+              <div id="existing-options" hidden><label class="checkbox-row"><input type="checkbox" id="replace-code"/> I approve replacing code already installed on this account.</label><label class="checkbox-row" id="upgrade-ack-row" hidden><input type="checkbox" id="upgrade-ack"/> I understand this upgrade may break existing state or balances, and that storage migrations are my responsibility.</label><p class="field-info warning-text">Editing code locally does not alter the blockchain. After compiling the new WASM, explicitly approve replacement on your existing contract account. Upgrades can break state or require migrations; only a full-access key authorized for the target account can replace its code.</p></div>
               <label class="space-top">Expected contract address</label><div id="target" class="address-box">Enter signer account above</div>
               <div class="panel-divider"></div>
               <div class="subsection-title">INITIALIZATION <span>OPTIONAL</span></div>
@@ -151,6 +151,18 @@
  <div class="compiler-progress-head"><span>INSTALLATION / BUILD PROGRESS</span><b id="compiler-stage">IDLE</b></div>
  <div id="compiler-log" class="review-box compiler-log" role="status" aria-live="polite">Click Check Compiler to detect your installed tools, or Install / Repair to get started.</div>
  <p class="field-info warning-text">Disconnect your local signer before setup or compiling. Rust build scripts run native code. Compilation is not sandboxed. Microsoft C++ Build Tools may be needed.</p>
+</div>
+<div class="panel isolated-compiler-panel">
+ <div class="panel-title"><div><span class="step-index">◈</span><b>Isolated Rust &amp; JavaScript / TypeScript Builds</b></div><span class="status-dot neutral" id="isolation-status">NOT CHECKED</span></div>
+ <p class="field-info">Recommended for projects from GitHub. Forge copies selected source into a temporary workspace, builds inside restricted Docker Desktop Linux containers, and imports only the WASM you explicitly approve. The original project and signing keys are never mounted.</p>
+ <div class="buttons compiler-controls"><button class="button button-outline" id="isolated-check">Check Docker Desktop</button><button class="button button-mint" id="isolated-build">Build Open Project in Isolation <span>↗</span></button></div>
+ <div class="review-box compiler-log" id="isolated-log" role="status" aria-live="polite">Requires Docker Desktop running Linux containers. First build downloads a large toolchain image. A native Windows confirmation is always required.</div>
+ <p class="field-info warning-text">Dependency downloads temporarily require container network access; the compilation stage runs offline. Containers are not perfect isolation. Only compile projects you have reviewed. Official near-sdk-js is deprecated and may fail even in Linux.</p>
+ <div class="panel-divider"></div>
+ <div class="subsection-title">SOURCE TO CONTRACT UPGRADE · GUIDED WORKFLOW</div>
+ <div class="upgrade-steps"><span>1. Edit</span><span>2. Save</span><span>3. Compile</span><span>4. Review WASM</span><span>5. Upgrade</span></div>
+ <button id="upgrade-start" class="button button-outline" disabled>Review Upgrade of Existing Contract <span>↗</span></button>
+ <p class="field-info">Review moves to the existing-account deployment form. Your contract is not updated until you explicitly authorize the on-chain transaction. Storage layout compatibility is not automatically verified.</p>
 </div>
 <div class="panel js-compiler-panel">
   <div class="panel-title"><div><span class="step-index">JS</span><b>JavaScript &amp; TypeScript Builder</b></div><span class="status-dot neutral" id="js-status">EXPERIMENTAL</span></div>

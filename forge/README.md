@@ -9,7 +9,7 @@ Nearium Forge is a SEPARATE Windows 10/11 desktop application alongside the exis
 ## Download
 1. Open https://github.com/Punisher530/nearium-admin-deployer/actions/workflows/nearium-forge-windows.yml
 2. Select the latest successful build and download the Nearium-Forge-Windows-10-11 artifact under Artifacts.
-3. Extract the ZIP and run Nearium-Forge-Windows-0.3.0.exe.
+3. Extract the ZIP and run Nearium-Forge-Windows-0.4.0.exe.
 4. The portable EXE is UNSIGNED, and a SmartScreen warning may appear. Check the provided SHA256SUMS.txt and review the source and origin before running it.
 
 ## Features
@@ -89,3 +89,21 @@ The **Compile / Import** view now includes **Local Contract Code Editor** and **
 - Package-manager monorepos that require pnpm/yarn or SDK postinstall hooks may need separate developer setup; the in-app npm workflow intentionally does not execute lifecycle scripts during dependency installation.
 - Compiler manager, editor, and build workflows do not transmit source or secret keys to Nearium servers. npm itself downloads dependencies from its configured registry; Windows and NPM environment configurations may affect that registry.
 - This feature is experimental. The portable Windows build and automated tests do not establish an end-to-end verified installation/build, a malware-free compiler, or a smart contract audit.
+
+
+## Forge v0.4.0: isolated builds, artifact review, and code upgrades
+
+### Recommended workflow
+1. Open **Compile / Import → Open Contract Project**, choose a Rust project with Cargo.toml or a JavaScript/TypeScript project with package.json.
+2. Edit the source locally and click **Save Source Changes**. The old WASM artifact is explicitly cleared when you save changes, and a local source backup is made. Saving does not change deployed blockchain code.
+3. For the safer build mode, install Docker Desktop separately, switch to **Linux containers**, and click **Check Docker Desktop**. Click **Build Open Project in Isolation** and approve the native Windows warning. Forge stages only selected project source files into a temporary folder, excluding wallet keys, .env files, credentials and dependency/build directories. **Original source is never mounted in the container.**
+4. Forge downloads a tagged Node Linux toolchain or digest-pinned cargo-near Linux toolchain. Dependencies are downloaded in restricted Docker containers during a network-enabled setup step. The compilation step uses Docker --network none, --read-only root, --cap-drop ALL, --security-opt no-new-privileges, --pids-limit 192, and CPU/memory limits. Only an isolated, temporary project directory is mounted. Docker isolation is not a perfect malware defense and depends on correct Docker Desktop configuration. Docker Desktop is not bundled.
+5. Newly built WASM files are explicitly selected when multiple are present, and **every selected WASM requires a native dialog displaying its size and SHA-256**. Forge no longer guesses the correct contract from filenames. It refuses to import an old WASM when no new artifact was produced. For isolated builds it tracks a staged-source SHA-256 fingerprint.
+6. **Review Upgrade of Existing Contract** opens the existing-account deployment workflow with the initializer cleared and replacement unchecked. Connect a dedicated Testnet signer, enable code replacement, run preflight, compare old code hash and new WASM, acknowledge state-migration risks, type the exact target and confirm the Windows dialog. Only then can the blockchain transaction be submitted.
+
+### Compatibility limits
+- Rust Docker builds require a Cargo.lock file; the pinned image is sourcescan/cargo-near:0.22.0-rust-1.97.1 with a SHA-256 manifest digest specified in the app. Dependent crates are fetched during setup in a restricted container.
+- JavaScript/TypeScript Docker builds use node:22.21.0-bookworm and npm build/build:contract scripts. The image is version-tagged, not registry-digest pinned. Near's officially archived/deprecated near-sdk-js supports a Linux compiler installation, so Docker can attempt it, including postinstall steps in the restricted download stage. Old SDK downloads, Node compatibility, or legacy build scripts may still fail. These scripts are untrusted code, not safe simply because they execute in a container.
+- **Native** Rust and compatible native npm builds remain available for trusted projects; they are NOT sandboxed. Use isolated mode when supported. GitHub Actions tests do not validate a real Docker build, native Rust toolchain install, nor migration safety.
+- The code editor supports source changes to existing files. On-chain upgrades can break persistent state, token balances, or init assumptions. Forge cannot automatically detect or perform schema migrations, so audit and test every upgrade on Testnet.
+- The app remains a Windows 10/11 x64, NEAR Testnet alpha, unsigned and unaudited. Do not use for mainnet assets. Additional Docker image signature pinning, hostile-source testing and hands-on Windows end-to-end testing are required before production distribution.

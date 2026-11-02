@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld('forge',Object.freeze({
  inspect:id=>invoke('inspect',id),
  openWasm:()=>invoke('open-wasm'),
  compileRust:()=>invoke('compile-rust'),
+ isolatedStatus:()=>invoke('isolated-status'),
+ isolatedBuild:args=>invoke('isolated-build',args),
  compilerStatus:()=>invoke('compiler-status'),
  compilerSetup:()=>invoke('compiler-setup'),
  projectOpen:()=>invoke('project-open'),
