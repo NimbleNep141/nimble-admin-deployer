@@ -9,7 +9,7 @@ Nearium Forge is a SEPARATE Windows 10/11 desktop application alongside the exis
 ## Download
 1. Open https://github.com/Punisher530/nearium-admin-deployer/actions/workflows/nearium-forge-windows.yml
 2. Select the latest successful build and download the Nearium-Forge-Windows-10-11 artifact under Artifacts.
-3. Extract the ZIP and run Nearium-Forge-Windows-0.2.0.exe.
+3. Extract the ZIP and run Nearium-Forge-Windows-0.3.0.exe.
 4. The portable EXE is UNSIGNED, and a SmartScreen warning may appear. Check the provided SHA256SUMS.txt and review the source and origin before running it.
 
 ## Features
@@ -66,3 +66,25 @@ Open **Compile / Import** and select **Check Compiler** or **Install / Repair Co
 - Compiler setup and compilation require disconnection of the local signer; tools do not receive wallet secrets or deploy contracts.
 - Compiling Rust source can execute arbitrary native build scripts under your Windows account. Builds are NOT sandboxed. Do not compile untrusted repositories.
 - Local setup requires an internet connection. Automated tests check code and the Windows build but do not prove the entire toolchain has been installed or that compilation works end-to-end on a user's PC.
+
+## Source Editor and JavaScript/TypeScript Contract Builds (v0.3.0)
+
+The **Compile / Import** view now includes **Local Contract Code Editor** and **JavaScript / TypeScript Contract Builder**.
+
+### Edit source
+- Click **Open Contract Project**, select a folder containing Cargo.toml or package.json, and choose a source file.
+- Edit Rust (.rs), JS (.js/.jsx), TS (.ts/.tsx), or project configuration (.json/.toml).
+- Click **Save Source Changes**. Forge confirms natively, checks for outside changes, and saves a pre-edit backup in the current Windows user's Forge data under source-backups.
+- Project file listings exclude node_modules, build artifacts, symlinks and paths outside the project. Individual editable files are limited to 1 MB.
+- Local source edits **never** update deployed blockchain contracts. Compile the new WASM, then explicitly choose **Deploy to my existing account** and approve replacement after preflight; state migrations are NOT automatic.
+
+### Legacy JS/TS contracts
+- NEAR's official near-sdk-js contract repository is **archived and explicitly deprecated**. This optional feature is suitable only for exploring existing legacy JavaScript/TypeScript contracts on **Testnet**. Use reviewed Rust contracts for real assets.
+- Install managed Node.js v22.21.0 using the in-app button. It downloads the fixed official Windows x64 ZIP and SHA256 manifest from nodejs.org, validates the download, and extracts into your Windows user-profile Forge compiler directory.
+- Select a JS/TS project with a package.json. Forge supports package scripts named `build:contract` or `build` that produce NEAR-compatible WASM. It does not translate arbitrary JavaScript code into a contract.
+- Click **Install Dependencies** when needed: `npm ci --ignore-scripts` if a package-lock exists, or `npm install --ignore-scripts` otherwise. npm lifecycle scripts are suppressed during installation but the explicitly selected build script can run native commands. Dependencies might still be unsafe.
+- Click **Compile JavaScript / TypeScript**, review the exact project build script in the native approval dialog, and select a generated WASM if multiple artifacts were created. Forge loads the generated WASM into the same deployment pipeline as Rust.
+- The user's signer **must be disconnected** for installation, dependency setup or compilation. This is a guardrail, NOT a secure sandbox. JS/TS build scripts run with the user's Windows privileges. Do not build untrusted projects.
+- Package-manager monorepos that require pnpm/yarn or SDK postinstall hooks may need separate developer setup; the in-app npm workflow intentionally does not execute lifecycle scripts during dependency installation.
+- Compiler manager, editor, and build workflows do not transmit source or secret keys to Nearium servers. npm itself downloads dependencies from its configured registry; Windows and NPM environment configurations may affect that registry.
+- This feature is experimental. The portable Windows build and automated tests do not establish an end-to-end verified installation/build, a malware-free compiler, or a smart contract audit.
