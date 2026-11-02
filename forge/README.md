@@ -4,6 +4,14 @@
 
 Nearium Forge is a SEPARATE Windows 10/11 desktop application alongside the existing Nearium Factory Deployer. The original factory deployer remains unchanged. Forge uses its own source folder, workflow, and portable executable.
 
+## v0.5.1: Fail-closed post-deployment verification
+- Independently query the finalized `tx` RPC status after broadcast; require matching transaction hash, sender, target, signing public key, approved action sequence, final status and a complete successful receipt graph.
+- If initialization was requested, require the matching function call and successful finalized execution receipts. This verifies execution success, **not application business invariants or persistent state correctness**.
+- For recoverable child accounts, require exactly one on-chain FullAccess key matching the intended signer. For existing-account upgrades, require the intended FullAccess key and disclose any additional keys.
+- Intentional keyless mode requires zero keys and is clearly labeled **INTENTIONALLY KEYLESS**. It never claims owner-key verification.
+- Missing RPC results, unknown or failed receipts, missing/mismatched keys, and wrong WASM hashes always produce **NOT VERIFIED**. There are no automatic transaction retries.
+- Mainnet transaction execution still requires dedicated real-funds end-to-end testing and independent review.
+
 ## Dual-network release v0.5.0
 - Choose Testnet (default) or **Mainnet · REAL NEAR** using the deployment studio's network selector. No network switch happens without verifying the corresponding RPC reports the expected `chain_id`.
 - RPC providers use fixed FastNear endpoints: `https://rpc.testnet.fastnear.com` and `https://rpc.mainnet.fastnear.com`. Both must pass the read-only CI smoke test (status, chain ID, protocol configuration storage price).
@@ -25,7 +33,7 @@ Nearium Forge is a SEPARATE Windows 10/11 desktop application alongside the exis
 ## Download
 1. Open https://github.com/NimbleNep141/nimble-admin-deployer/actions/workflows/nearium-forge-windows.yml
 2. Select the latest successful build and download the Nearium-Forge-Windows-10-11 artifact under Artifacts.
-3. Extract the ZIP and run Nearium-Forge-Windows-0.5.0.exe.
+3. Extract the ZIP and run Nearium-Forge-Windows-0.5.1.exe.
 4. The portable EXE is UNSIGNED, and a SmartScreen warning may appear. Check the provided SHA256SUMS.txt and review the source and origin before running it.
 
 ## Features
