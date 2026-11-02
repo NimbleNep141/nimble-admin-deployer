@@ -96,7 +96,7 @@ test('malformed or truncated journal fails CLOSED after restart, without resetti
   const j=new DeploymentJournal(root),r=await j.start(approval());
   await fs.writeFile(j.file(r.network,r.target),'{"schemaVersion":1,"incomplete":');
   const fresh=new DeploymentJournal(root);
-  await assert.rejects(()=>fresh.assertClear(r.network,r.target),/journal is damaged/);
+  await assert.rejects(()=>fresh.assertClear(r.network,r.target),/journal (?:is damaged|file is corrupt)/);
   await assert.rejects(()=>fresh.list(),/corrupt/);
   await assert.rejects(()=>fresh.start(approval()),/RECOVERY REQUIRED/);
  });
