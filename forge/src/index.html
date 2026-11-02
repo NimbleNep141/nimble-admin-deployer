@@ -140,6 +140,25 @@
            <div class="deploy-hint" id="deploy-hint">Run preflight before deploying.</div>
           <div class="result-box" id="deployment-result" role="status" aria-live="polite">No deployment transaction submitted in this session.</div>
         </div>
+        <div class="panel recovery-panel">
+          <div class="panel-title"><div><span class="step-index">05</span><b>Persistent Transaction Recovery</b></div><span id="recovery-status" class="status-dot neutral">CHECKING</span></div>
+          <p class="field-info">Recovery records are saved in your local Windows Forge profile before broadcast. Uncertain transactions remain blocked across app restarts and network switches. Never resend a transaction until its outcome is verified.</p>
+          <label for="recovery-select">Unresolved deployment attempt</label>
+          <select id="recovery-select"><option value="">No unresolved transactions loaded</option></select>
+          <div id="recovery-detail" class="review-box" role="status" aria-live="polite">Select an unresolved transaction to review its target, network, code hash and receipt status.</div>
+          <div class="buttons compiler-controls">
+            <button id="recovery-refresh" class="button button-outline">Refresh Saved Attempts</button>
+            <button id="recovery-check" class="button button-mint" disabled>Check On-chain Finality</button>
+          </div>
+          <label for="recovery-hash">Attach a known transaction hash if Forge closed before saving it</label>
+          <input id="recovery-hash" spellcheck="false" autocomplete="off" placeholder="Paste the confirmed transaction hash" />
+          <button id="recovery-attach" class="button button-outline" disabled>Verify and Attach Transaction Hash</button>
+          <div class="panel-divider"></div>
+          <p class="field-info warning-text">A confirmed FAILED transaction may have created an account or executed some receipts. Inspect the blockchain and remaining balance first. Unknown or hashless attempts cannot be cleared by this button.</p>
+          <label for="recovery-target">To archive a confirmed failed transaction, type its exact target</label>
+          <input id="recovery-target" autocomplete="off" spellcheck="false" placeholder="Exact recovered contract account" />
+          <button id="recovery-release" class="button button-outline" disabled>Review Finalized Failure Before New Preflight</button>
+        </div>
       </section>
 
       <section class="workspace-view" id="view-library" hidden>
