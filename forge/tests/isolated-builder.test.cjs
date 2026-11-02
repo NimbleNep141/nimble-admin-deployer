@@ -74,6 +74,8 @@ test('main process and UI expose isolated compiler and source-upgrade guardrails
  assert.match(ui,/id="isolated-build"/);
  assert.match(ui,/id="upgrade-ack"/);
  assert.match(ui,/id="upgrade-start"/);
+ assert.match(ui,/id="upgrade-target"/);
+ assert.match(renderer,/el\('owner'\)\.value=target/);
  assert.match(renderer,/artifactUpdate\(null\)/);
  assert.match(preload,/isolatedBuild:args=>invoke\('isolated-build',args\)/);
 });

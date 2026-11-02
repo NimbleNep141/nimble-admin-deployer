@@ -273,8 +273,11 @@ async function runIsolatedBuild(){
  finally{busy(false);}
 }
 function startUpgradeReview(){
+ const target=el('upgrade-target').value.trim();
+ if(!/^[a-z0-9]+(?:[._-][a-z0-9]+)*\.testnet$/.test(target)){notify('Enter the exact existing contract account ending in .testnet.',true);return;}
  if(!artifact){notify('Compile or import a WASM before reviewing an upgrade.',true);return;}
  if(sourceDirty){notify('Save source edits and recompile before reviewing an upgrade.',true);return;}
+ el('owner').value=target;
  el('mode').value='existing';el('replace-code').checked=false;
  el('init-method').value='';el('init-args').value='{}';el('init-deposit').value='0';
  el('ack').checked=false;el('upgrade-ack').checked=false;display('upgrade-ack-row',false);

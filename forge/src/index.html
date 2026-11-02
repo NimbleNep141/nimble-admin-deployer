@@ -161,6 +161,8 @@
  <div class="panel-divider"></div>
  <div class="subsection-title">SOURCE TO CONTRACT UPGRADE · GUIDED WORKFLOW</div>
  <div class="upgrade-steps"><span>1. Edit</span><span>2. Save</span><span>3. Compile</span><span>4. Review WASM</span><span>5. Upgrade</span></div>
+ <label for="upgrade-target">Exact existing contract account</label>
+ <input id="upgrade-target" type="text" spellcheck="false" placeholder="contract.youraccount.testnet" autocomplete="off"/>
  <button id="upgrade-start" class="button button-outline" disabled>Review Upgrade of Existing Contract <span>↗</span></button>
  <p class="field-info">Review moves to the existing-account deployment form. Your contract is not updated until you explicitly authorize the on-chain transaction. Storage layout compatibility is not automatically verified.</p>
 </div>
