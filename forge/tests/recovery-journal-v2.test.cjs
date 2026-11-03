@@ -145,3 +145,25 @@ test('TDD: storage-path failure refuses to begin an attempt rather than bypassin
   await assert.rejects(()=>j.start(plan()));
  });
 });
+
+test('TDD: restart after archive fsync but before unlink can safely finish recovery',async()=>{
+ await withTemp(async dir=>{
+  const j=new RecoveryJournal(dir),saved=await j.start(plan());
+  await j.rememberHash('testnet','child.owner.testnet',hash);
+  const archive=path.join(dir,'recovery-journal-v2','history',saved.id+'.json');
+  await fs.writeFile(archive,JSON.stringify({...await j.get('testnet','child.owner.testnet'),resolvedAt:new Date().toISOString(),resolution:'independently-verified-success'}));
+  const restarted=new RecoveryJournal(dir);
+  const ok=await restarted.complete('testnet','child.owner.testnet',{verified:true,txHash:hash});
+  assert.equal(ok.resolved,true);await restarted.assertClear('testnet','child.owner.testnet');
+ });
+});
+test('TDD: conflicting preexisting archive never clears a pending guard',async()=>{
+ await withTemp(async dir=>{
+  const j=new RecoveryJournal(dir),saved=await j.start(plan());
+  await j.rememberHash('testnet','child.owner.testnet',hash);
+  const archive=path.join(dir,'recovery-journal-v2','history',saved.id+'.json');
+  await fs.writeFile(archive,JSON.stringify({...await j.get('testnet','child.owner.testnet'),txHash:'5'.repeat(44),resolution:'independently-verified-success'}));
+  await assert.rejects(()=>j.complete('testnet','child.owner.testnet',{verified:true,txHash:hash}),/conflict/i);
+  await assert.rejects(()=>j.assertClear('testnet','child.owner.testnet'),/recover|pending/i);
+ });
+});

@@ -116,7 +116,17 @@ class RecoveryJournal{
   // First archive a complete fsynced record; only then remove the active guard.
   // Any failure before unlink leaves the attempt blocked.
   try{await writeSynced(archive,JSON.stringify(record)+'\n','wx');}
-  catch(e){throw Error('Cannot archive verified recovery; original guard retained: '+e.message);}
+  catch(e){
+   if(e.code!=='EEXIST')throw Error('Cannot archive verified recovery; original guard retained: '+e.message);
+   // A crash may happen between archiving and unlinking. Reconcile safely on restart.
+   let existing;
+   try{existing=JSON.parse(await fs.readFile(archive,'utf8'));}
+   catch{throw Error('Existing recovery archive is damaged; original guard retained.');}
+   if(existing.schemaVersion!==2||existing.id!==prev.id||existing.network!==network||
+      existing.target!==target||existing.txHash!==txHash||
+      existing.resolution!=='independently-verified-success')
+    throw Error('Conflicting recovery archive; original guard retained.');
+  }
   await fs.unlink(this.key(network,target));
   return {resolved:true,txHash,archive};
  }
