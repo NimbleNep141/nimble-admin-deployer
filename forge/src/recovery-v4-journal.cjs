@@ -27,9 +27,22 @@ function validate(a){
  return a;
 }
 async function exclusive(file,obj){
- const handle=await fs.open(file,'wx',0o600);
- try{await handle.writeFile(JSON.stringify(obj)+'\n','utf8');await handle.sync();}
- finally{await handle.close();}
+ // Write and flush a PRIVATE temporary inode first; only then atomically publish
+ // a hard link at the canonical immutable filename. Link creation is exclusive:
+ // another process cannot overwrite an already published guard or resolution.
+ // An interrupted write leaves only a .tmp orphan, never a partial guard.
+ const staging=path.join(path.dirname(file),'.'+randomUUID()+'.tmp');
+ let handle;
+ try{
+  handle=await fs.open(staging,'wx',0o600);
+  await handle.writeFile(JSON.stringify(obj)+'\n','utf8');
+  await handle.sync();
+  await handle.close();handle=null;
+  await fs.link(staging,file);
+ }finally{
+  if(handle)await handle.close().catch(()=>{});
+  await fs.rm(staging,{force:true}).catch(()=>{});
+ }
 }
 async function read(file){
  try{
@@ -83,6 +96,7 @@ class V4Journal{
   if(files.length>MAX_ATTEMPTS)throw corrupt('Too many attempts for this target');
   const result=[];
   for(const file of files){
+   if(/^\.[0-9a-f-]{36}\.tmp$/.test(file))continue; // orphan from a crash BEFORE immutable publish
    if(!/^\d{6}\.json$/.test(file))throw corrupt('Unexpected attempt filename');
    const a=validate(await read(path.join(this.attempts,k,file)));
    if(a.network!==network||a.target!==target||file!==this.name(a.generation))throw corrupt('Attempt identity changed');
@@ -127,6 +141,7 @@ class V4Journal{
    if(!/^[a-f0-9]{64}$/.test(name))throw corrupt('Unidentified attempt directory');
    const files=await fs.readdir(path.join(this.attempts,name));
    for(const file of files){
+    if(/^\.[0-9a-f-]{36}\.tmp$/.test(file))continue;
     if(!/^\d{6}\.json$/.test(file))throw corrupt();
     const a=validate(await read(path.join(this.attempts,name,file)));
     if(key(a.network,a.target)!==name)throw corrupt('Attempt directory identity mismatch');
