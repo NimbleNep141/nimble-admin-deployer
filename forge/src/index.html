@@ -139,6 +139,15 @@
           <div id="mainnet-gate" class="mainnet-gate" hidden><label class="checkbox-row"><input type="checkbox" id="mainnet-ack"/> I understand this deploys to NEAR Mainnet, spends REAL NEAR and cannot be reversed.</label><label for="mainnet-word">Type MAINNET to authorize real-funds deployment</label><input id="mainnet-word" autocomplete="off" spellcheck="false" placeholder="MAINNET"/></div>
            <div class="deploy-hint" id="deploy-hint">Run preflight before deploying.</div>
           <div class="result-box" id="deployment-result" role="status" aria-live="polite">No deployment transaction submitted in this session.</div>
+          <div class="panel-divider"></div>
+          <div class="subsection-title">TRANSACTION RECOVERY <span>LOCAL · READ ONLY</span></div>
+          <p class="field-info">After an interruption, pending attempts remain blocked across restarts. Review a saved attempt below. Checking a transaction never signs, sends or retries it. For an attempt without a saved transaction hash, locate the hash independently using the NEAR explorer.</p>
+          <div class="form-grid">
+            <div><label for="recovery-target">Target contract on selected network</label><input id="recovery-target" autocomplete="off" spellcheck="false" placeholder="child.owner.testnet"/></div>
+            <div><label for="recovery-hash">Transaction hash (only if not stored)</label><input id="recovery-hash" autocomplete="off" spellcheck="false" placeholder="Optional · explorer transaction hash"/></div>
+          </div>
+          <div class="buttons"><button type="button" id="recovery-refresh" class="button button-outline">List Pending Attempts</button><button type="button" id="recovery-resolve" class="button button-mint">Verify / Reconcile Read-Only</button></div>
+          <div id="recovery-output" class="review-box" role="status" aria-live="polite">Recovery checks use independently finalized NEAR transaction results. Unverified or hashless attempts remain blocked.</div>
         </div>
       </section>
 
