@@ -4,6 +4,17 @@
 
 Nearium Forge is a SEPARATE Windows 10/11 desktop application alongside the existing Nearium Factory Deployer. The original factory deployer remains unchanged. Forge uses its own source folder, workflow, and portable executable.
 
+## Recovery v3 RC: isolated experiment, NOT production-ready
+
+- Stable `main` and `baseline/forge-v0.8.1` are unchanged. Draft PR #11 must NOT auto-merge.
+- Before broadcast, Forge creates a NEAR 7.4 transaction, signs it with its existing local signer, independently checks the signed transaction hash, and fsyncs the **exact signed hash, nonce and block hash** to an exclusive per-account file. The same signed transaction is sent without creating a replacement. No private keys, signed bytes, or initializer arguments are written to recovery files.
+- New deployments cannot have a hashless broadcast because no network submission occurs before the signed hash is recorded.
+- Restart recovery queries only the saved exact hash. No manual hash substitution or transaction replay resolution is allowed. Success needs finalized receipts, matching WASM, signer and access-key policy.
+- A confirmed FINAL failure can be archived only after an exact hash/nonce and complete receipt check, current account/key inspection, exact target typing, native Cancel-default Windows dialog, then second verification. This does not imply that partial state changes were undone.
+- Legacy v0.8.2 records are visible and block **their own identified target**. They cannot be silently deleted or linked to a newer transaction. A corrupted legacy record with unidentifiable target still blocks signing until independently reviewed.
+- Session-only attempt locks were removed. The durable exclusive record is authoritative; a successful verified recovery releases the account for fresh preflight (not automatic resubmission).
+- Release gate: existing tests plus adversarial mock failures, Windows process-kill testing, and disposable Testnet end-to-end validation. Do not use for valuable Mainnet contracts.
+
 ## v0.8.1: Host environment secret isolation for production builds
 
 Forge's official Rust production-build path now launches **both Git preflight and cargo-near** with a minimal allowlist of essential Windows system/toolchain environment variables. Arbitrary variables such as API tokens, cloud credentials, NEAR secret keys, credential-bearing proxy URLs, custom Git configuration overrides, and Docker host/context overrides are not inherited. This is enforced server-side in Forge's Electron main process, not merely through the user interface.
