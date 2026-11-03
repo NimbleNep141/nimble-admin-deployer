@@ -547,6 +547,7 @@ async function changeNetwork(){
   setText('upgrade-context-output','Select an existing Mainnet account and inspect old/new code hashes again.');
   setText('verify-output','Select an account on the active network to inspect.');
   invalidate();paintNetwork(state);
+  await refreshRecovery();
   notify('Network selected: '+selectedNetwork.toUpperCase()+'. Signing key disconnected. '+(selectedNetwork==='mainnet'?'CAUTION: real funds are at risk.':'Test NEAR only.'));
  }catch(e){paintNetwork();notify('Cannot switch network: '+e.message,true)}
  finally{busy(false)}
@@ -596,5 +597,6 @@ async function initialize(){
   const n=await call('network');selectedNetwork=n.network;paintNetwork(n);
  }catch(e){setText('network-status',selectedNetwork+' unavailable');notify('Network check failed: '+e.message,true)}
  await refreshLibrary();
+ await refreshRecovery();
 }
 initialize();

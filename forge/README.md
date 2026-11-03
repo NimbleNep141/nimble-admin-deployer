@@ -4,6 +4,19 @@
 
 Nearium Forge is a SEPARATE Windows 10/11 desktop application alongside the existing Nearium Factory Deployer. The original factory deployer remains unchanged. Forge uses its own source folder, workflow, and portable executable.
 
+## EXPERIMENT ONLY: transaction recovery v2 (v0.8.2-rc.1)
+
+**DO NOT MERGE AUTOMATICALLY OR USE THIS BRANCH FOR MAINNET FUNDS.** Stable v0.8.1 is unchanged on main and on baseline/forge-v0.8.1.
+
+Safety layers:
+1. Keep the stable baseline untouched.
+2. Test the independent recovery journal and read-only verifier on experiment/transaction-recovery-v2.
+3. Merge only after regression audit, actual Windows crash/restart tests and disposable Testnet failure-injection.
+
+The journal creates an exclusive, fsynced per-network/target marker BEFORE signAndSendTransaction. It saves only public metadata (signer, target, public key, code hash, WASM SHA-256 and optional transaction hash), never secret keys or initializer arguments. Unknown results remain blocked across restarts; there is **no automatic retry**. A hash can be added from an independent explorer after matching sender, receiver, signing key and actions on-chain. Only successful independent finalized receipt verification, matching deployed code and expected access-key policy permit archiving and clearing the marker.
+
+**Known limitations:** If no transaction hash can be recovered, or an attempt finalized with failure, the guard remains blocked until further manual forensic procedures exist. Recovery cannot prove a signed transaction that never broadcast. Windows files may remain locked after storage corruption, permissions failure, interrupted archive writes or local filesystem damage. Do not manually delete recovery evidence. A successful test suite alone does NOT prove process crash durability on actual Windows hardware or safe Mainnet use.
+
 ## v0.8.1: Host environment secret isolation for production builds
 
 Forge's official Rust production-build path now launches **both Git preflight and cargo-near** with a minimal allowlist of essential Windows system/toolchain environment variables. Arbitrary variables such as API tokens, cloud credentials, NEAR secret keys, credential-bearing proxy URLs, custom Git configuration overrides, and Docker host/context overrides are not inherited. This is enforced server-side in Forge's Electron main process, not merely through the user interface.
