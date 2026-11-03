@@ -10,11 +10,11 @@ const {createHash}=require('node:crypto');
 const {RecoveryJournalV3}=require('../src/recovery-v3-journal.cjs');
 const {signPersistSend}=require('../src/recovery-v3-broadcast.cjs');
 test('near-api-js 7.x actual signature hash is saved BEFORE provider sees signed bytes',async()=>{
- const {KeyPair,KeyPairSigner,transactions,baseEncode}=await import('near-api-js');
- assert.equal(typeof transactions.Transaction,'function','near-api-js Transaction API must be available');
+ const {KeyPair,KeyPairSigner,Transaction,baseEncode}=await import('near-api-js');
+ assert.equal(typeof Transaction,'function','near-api-js Transaction API must be available');
  const key=KeyPair.fromRandom('ed25519'),signer=KeyPairSigner.fromSecretKey(key.toString());
  const publicKey=await signer.getPublicKey();
- const unsigned=new transactions.Transaction({
+ const unsigned=new Transaction({
   signerId:'owner.testnet',receiverId:'contract.owner.testnet',nonce:15n,
   publicKey,blockHash:new Uint8Array(32).fill(3),actions:[]
  });
