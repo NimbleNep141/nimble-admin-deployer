@@ -140,3 +140,54 @@ test('main/preload/renderer have no old session-only deployment target guard',as
  assert.match(main,/signPersistSend/);
  assert.doesNotMatch(main,/signer\.account\.signAndSendTransaction/);
 });
+
+test('tampered signed transaction payload is rejected before any journal write or broadcast',async()=>{
+ await workspace(async root=>{
+  const journal=new RecoveryJournalV3(root);let sent=0;
+  const account={createTransaction:async()=>stubUnsigned(),
+   getSigner:()=>({signTransaction:async unsigned=>({
+    txHash:new Uint8Array(MOCK_TX_HASH),
+    signedTransaction:{transaction:{...unsigned,encode:()=>Buffer.from('tampered payload')}}})}),
+   provider:{sendTransactionUntil:async()=>{sent++}}};
+  await assert.rejects(()=>signPersistSend({account,journal,approved:base,actions:[],baseEncode:stubEncode}),/Signer returned different/);
+  assert.equal(sent,0);assert.equal(await journal.get(base.network,base.target),null);
+ });
+});
+test('a signer-returned incorrect SHA-256 cannot be used to authorize broadcast',async()=>{
+ await workspace(async root=>{
+  const journal=new RecoveryJournalV3(root);let sent=0;
+  const account={createTransaction:async()=>stubUnsigned(),
+   getSigner:()=>({signTransaction:async unsigned=>({
+    txHash:new Uint8Array(32).fill(9),signedTransaction:{transaction:unsigned}})}),
+   provider:{sendTransactionUntil:async()=>{sent++}}};
+  await assert.rejects(()=>signPersistSend({account,journal,approved:base,actions:[],baseEncode:stubEncode}),/hash/);
+  assert.equal(sent,0);assert.equal(await journal.get(base.network,base.target),null);
+ });
+});
+test('same signer, target and action types with a DIFFERENT nonce cannot resolve recovery',async()=>{
+ await workspace(async root=>{
+  const journal=new RecoveryJournalV3(root);await journal.start(base);
+  const wrong=outcome();wrong.transaction.nonce=14;
+  await assert.rejects(()=>verifyRecovery({journal,network:base.network,target:base.target,
+   rpc:async method=>method==='tx'?wrong:access,queryAccount:async()=>({code_hash:CODE})}),/nonce|identity|hash/i);
+  assert.ok(await journal.get(base.network,base.target));
+ });
+});
+test('failed transaction with incomplete receipt evidence cannot be manually released',async()=>{
+ await workspace(async root=>{
+  const journal=new RecoveryJournalV3(root);await journal.start(base);
+  const tx=outcome({Failure:{ActionError:{}}});
+  tx.receipts_outcome=[];
+  await assert.rejects(()=>verifyFailure({journal,network:base.network,target:base.target,
+   rpc:async method=>method==='tx'?tx:access,queryAccount:async()=>({code_hash:CODE})}),/complete|receipt|failure/i);
+  await assert.rejects(()=>journal.assertClear(base.network,base.target),/pending|recovery/i);
+ });
+});
+test('corrupt v3 evidence blocks unrelated submissions until data is inspected',async()=>{
+ await workspace(async root=>{
+  const journal=new RecoveryJournalV3(root);await journal.start(base);
+  const folder=path.join(root,'recovery-v3','active');
+  const name=(await fs.readdir(folder))[0];await fs.writeFile(path.join(folder,name),'{broken');
+  await assert.rejects(()=>journal.assertClear('testnet','other.owner.testnet'),/corrupt|unreadable/i);
+ });
+});
