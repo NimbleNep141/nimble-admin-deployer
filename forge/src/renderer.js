@@ -1,7 +1,7 @@
 'use strict';
 const el=id=>document.getElementById(id);
 let active='home',view='deploy',artifact=null,localSigner=null,review=null,working=false,selectedNetwork='testnet';
-let saved=[],deletePending=null,submittedTarget=null,lastDeployment=null;
+let saved=[],deletePending=null,lastDeployment=null;
 const names={deploy:'Deployment Studio',library:'My Contract Library',verify:'Verify On-chain',build:'Compile / Import'};
 const descriptions={
  deploy:'A precision workflow from compiled bytecode to verified contract.',
@@ -32,6 +32,7 @@ function showView(next){
  document.querySelectorAll('.nav-link').forEach(n=>n.classList.toggle('selected',n.dataset.view===next));
  setText('workspace-title',names[next]);setText('workspace-desc',descriptions[next]);setText('crumb-page',next.toUpperCase());
  if(next==='library')refreshLibrary();
+ if(next==='deploy')refreshRecovery();
  if(next==='build'){refreshCompiler();refreshNodeStatus();refreshIsolationStatus();refreshReproducibleStatus();}
  if(next==='verify'&&!el('verify-address').value.trim())el('verify-address').value=targetId();
 }
@@ -93,7 +94,7 @@ function updateDeploy(){
 }
 function busy(value){
  working=value;
- for(const id of ['wasm-import','rust-compile','wasm-import-build','rust-compile-build','key-connect','key-file','key-disconnect','preflight','save-current','saved-load','saved-delete','saved-refresh','saved-verify','verify-button','deploy','isolated-build','isolated-check','reproducible-check','reproducible-install','upgrade-start','network-select','upgrade-inspect','upgrade-prepare'])el(id).disabled=value;
+ for(const id of ['wasm-import','rust-compile','wasm-import-build','rust-compile-build','key-connect','key-file','key-disconnect','preflight','save-current','saved-load','saved-delete','saved-refresh','saved-verify','verify-button','deploy','isolated-build','isolated-check','reproducible-check','reproducible-install','upgrade-start','network-select','upgrade-inspect','upgrade-prepare','recovery-refresh','recovery-verify','recovery-release-failure'])el(id).disabled=value;
  if(!value){el('upgrade-start').disabled=!artifact||sourceDirty;updateDeploy();}
 }
 function artifactUpdate(meta){
@@ -377,13 +378,11 @@ async function doPreflight(){
 async function doDeploy(){
  if(!review){setResult('Run Preflight first.','error');return;}
  if(!el('ack').checked||el('confirmation').value.trim()!==review.target){setResult('Type the exact account address and acknowledge the risks.','error');return;}
- if(submittedTarget===selectedNetwork+':'+review.target){setResult('This target already had a deployment attempt in this session. Verify blockchain receipts before retrying.','error');return;}
  busy(true);
  setResult('Opening native Windows confirmation. Nothing is signed or sent until you choose Deploy Contract.');
  try{
   const report=await call('deploy',{config:config(),token:review.token,confirm:el('confirmation').value.trim(),ack:true,ackMigration:el('upgrade-ack').checked,upgradeToken:review.upgradeToken,ackMainnet:el('mainnet-ack').checked,confirmNetwork:el('mainnet-word').value.trim()});
   if(report.cancelled){setResult('Cancelled by user. No transaction was submitted.');notify('Deployment cancelled.');return;}
-  submittedTarget=report.network+':'+report.target;
   lastDeployment={network:report.network,address:report.target,txHash:report.txHash,verified:report.verified};
   const status=report.verified?
     (report.keyless?'CONFIRMED · INTENTIONALLY KEYLESS (NO OWNER KEY)':'CONFIRMED · OWNER KEY + RECEIPTS VERIFIED'):
@@ -407,7 +406,49 @@ async function doDeploy(){
     (report.keyless?'Contract code and receipts verified. This account has NO OWNER KEY.':'Expected FullAccess owner key, deployed code, and finalized receipts verified.'):
     'Transaction or ownership verification incomplete. Inspect receipts and do not retry automatically.',!report.verified);
  }catch(e){setResult('DEPLOYMENT DID NOT CONFIRM\n'+e.message+'\nNever retry without verifying account and receipts on NEAR '+selectedNetwork+'.','error');notify(e.message,true)}
- finally{review=null;el('ack').checked=false;el('upgrade-ack').checked=false;display('upgrade-ack-row',false);el('confirmation').value='';el('mainnet-ack').checked=false;el('mainnet-word').value='';busy(false);updateDeploy()}
+ finally{await refreshRecovery();review=null;el('ack').checked=false;el('upgrade-ack').checked=false;display('upgrade-ack-row',false);el('confirmation').value='';el('mainnet-ack').checked=false;el('mainnet-word').value='';busy(false);updateDeploy()}
+}
+async function refreshRecovery(){
+ try{
+  const records=await call('recoveryList');
+  const lines=records.length?records.map(item=>
+   'NETWORK '+item.network.toUpperCase()+'\nTARGET '+item.target+
+   '\nSTATUS '+(item.legacy?'LEGACY V0.8.2 · MANUAL REVIEW REQUIRED':'EXACT SIGNED TRANSACTION PENDING')+
+   '\nTX '+(item.txHash||'UNKNOWN (LEGACY)')+
+   '\nCREATED '+(item.createdAt||'unknown')).join('\n\n'):
+   'No unresolved transactions on '+selectedNetwork.toUpperCase()+'.';
+  setText('recovery-output',lines);
+  if(records.length===1)el('recovery-target').value=records[0].target;
+ }catch(e){setText('recovery-output','Recovery records cannot be checked: '+e.message+
+ '\nDo not attempt deployment until saved evidence is inspected.');}
+}
+async function doRecovery(){
+ const target=el('recovery-target').value.trim()||targetId();
+ busy(true);setText('recovery-output','Verifying exact signed transaction and receipts on '+selectedNetwork.toUpperCase()+'...');
+ try{
+  const result=await call('recoveryVerify',{target});
+  setText('recovery-output',(result.resolved?'SUCCESSFULLY VERIFIED / ARCHIVED':'UNRESOLVED / STILL BLOCKED')+
+   '\nNETWORK '+result.network+'\nTARGET '+result.target+'\nTX '+result.txHash+'\n'+(result.note||''));
+  notify(result.resolved?'Verified and archived. A new deployment requires new preflight.':
+   'Still blocked. No transaction was retried.',!result.resolved);
+ }catch(e){setText('recovery-output','Recovery verification incomplete: '+e.message+
+  '\nNothing was re-signed, retried or released.');notify(e.message,true);}
+ finally{busy(false);}
+}
+async function releaseFailedRecovery(){
+ const target=el('recovery-target').value.trim()||targetId();
+ const typedTarget=el('recovery-confirm-target').value.trim();
+ busy(true);setText('recovery-output','Checking exact finalized failed transaction and account state...');
+ try{
+  const status=await call('recoveryReleaseFailure',{target,typedTarget});
+  if(status.cancelled){notify('Failure review cancelled; guard preserved.');return;}
+  el('recovery-confirm-target').value='';
+  setText('recovery-output','REVIEWED FINAL FAILURE ARCHIVED\nTARGET '+status.target+'\nTX '+status.txHash+
+   '\nA new transaction requires a fresh preflight and new approval.');
+  notify('Confirmed final failure independently checked, reviewed and archived.');
+ }catch(e){setText('recovery-output','Failure remains protected: '+e.message+
+  '\nNever delete recovery evidence manually.');notify(e.message,true);}
+ finally{busy(false);}
 }
 async function refreshLibrary(){
  try{
@@ -515,6 +556,7 @@ async function changeNetwork(){
   setText('upgrade-context-output','Select an existing Mainnet account and inspect old/new code hashes again.');
   setText('verify-output','Select an account on the active network to inspect.');
   invalidate();paintNetwork(state);
+  await refreshRecovery();
   notify('Network selected: '+selectedNetwork.toUpperCase()+'. Signing key disconnected. '+(selectedNetwork==='mainnet'?'CAUTION: real funds are at risk.':'Test NEAR only.'));
  }catch(e){paintNetwork();notify('Cannot switch network: '+e.message,true)}
  finally{busy(false)}
@@ -536,6 +578,8 @@ wire('source-project',openProjectUI);wire('source-save',saveSourceUI);wire('sour
 el('source-file').addEventListener('change',()=>openSourceFile(el('source-file').value));
 el('source-code').addEventListener('input',()=>setSourceDirty(Boolean(sourceFile&&el('source-code').value!==sourceFile.text)));
 wire('preflight',doPreflight);wire('deploy',doDeploy);wire('save-current',saveCurrent);
+ wire('recovery-refresh',refreshRecovery);wire('recovery-verify',doRecovery);
+ wire('recovery-release-failure',releaseFailedRecovery);
 wire('saved-load',loadSaved);wire('saved-delete',deleteSaved);wire('saved-refresh',refreshLibrary);wire('verify-button',verify);
  el('network-select').addEventListener('change',changeNetwork);
 wire('saved-verify',()=>{const entry=saved.find(x=>x.id===el('saved-select').value);if(!entry?.deployment?.address)return;
@@ -563,5 +607,6 @@ async function initialize(){
   const n=await call('network');selectedNetwork=n.network;paintNetwork(n);
  }catch(e){setText('network-status',selectedNetwork+' unavailable');notify('Network check failed: '+e.message,true)}
  await refreshLibrary();
+ await refreshRecovery();
 }
 initialize();
