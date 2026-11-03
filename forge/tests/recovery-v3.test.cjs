@@ -4,6 +4,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs/promises');
 const os=require('node:os');
 const path=require('node:path');
+const {createHash}=require('node:crypto');
 const {RecoveryJournalV3}=require('../src/recovery-v3-journal.cjs');
 const {signPersistSend}=require('../src/recovery-v3-broadcast.cjs');
 const {verifyRecovery,verifyFailure}=require('../src/recovery-v3-verifier.cjs');
@@ -12,6 +13,14 @@ const base={network:'testnet',target:'widget.owner.testnet',signer:'owner.testne
  publicKey:PUB,mode:'new',keyMode:'controlled',initMethod:'new',
  wasmSha256:'a'.repeat(64),expectedCodeHash:CODE,txHash:HASH,nonce:'15',blockHash:BLOCK};
 const args=()=>({...base});
+const MOCK_ENCODED=Buffer.from('near-v3-signed-fixture');
+const MOCK_TX_HASH=createHash('sha256').update(MOCK_ENCODED).digest();
+const stubUnsigned=()=>({signerId:base.signer,receiverId:base.target,
+ publicKey:{toString:()=>PUB},nonce:15n,blockHash:new Uint8Array(32).fill(2),
+ encode:()=>MOCK_ENCODED});
+const stubSigner=()=>({signTransaction:async unsigned=>({
+ txHash:new Uint8Array(MOCK_TX_HASH),signedTransaction:{transaction:unsigned}})});
+const stubEncode=bytes=>Buffer.from(bytes).equals(MOCK_TX_HASH)?HASH:BLOCK;
 async function workspace(fn){const root=await fs.mkdtemp(path.join(os.tmpdir(),'forge-v3-'));
  try{return await fn(root)}finally{await fs.rm(root,{recursive:true,force:true})}}
 function outcome(status={SuccessValue:''}){
@@ -27,11 +36,11 @@ test('exact signed transaction hash and nonce are stored BEFORE broadcast and su
  await workspace(async root=>{
   const journal=new RecoveryJournalV3(root);let sendCount=0,storedAtSend=null;
   const account={
-   getSigner:()=>({signTransaction:async unsigned=>({txHash:Uint8Array.from([1]),signedTransaction:{transaction:unsigned}})}),
-   createTransaction:async({receiverId,actions,publicKey})=>({receiverId,actions,publicKey,nonce:15n,blockHash:Uint8Array.from([2])}),
+   getSigner:stubSigner,
+   createTransaction:async()=>stubUnsigned(),
    provider:{sendTransactionUntil:async()=>{sendCount++;storedAtSend=await new RecoveryJournalV3(root).get(base.network,base.target);return outcome();}}
   };
-  const tx=await signPersistSend({account,journal,approved:base,actions:[],baseEncode:bytes=>bytes[0]===1?HASH:BLOCK});
+  const tx=await signPersistSend({account,journal,approved:base,actions:[],baseEncode:stubEncode});
   assert.equal(tx.transaction.hash,HASH);assert.equal(sendCount,1);
   assert.equal(storedAtSend.txHash,HASH);assert.equal(storedAtSend.nonce,'15');
   await assert.rejects(()=>journal.assertClear(base.network,base.target),/recovery|pending|blocked/i);
@@ -41,10 +50,10 @@ test('storage failure prevents ANY broadcast, even after signing',async()=>{
  await workspace(async root=>{
   const journal=new RecoveryJournalV3(root);await journal.start(base);
   let sent=0;
-  const account={createTransaction:async()=>({nonce:15n,blockHash:Uint8Array.from([2])}),
-   getSigner:()=>({signTransaction:async unsigned=>({txHash:Uint8Array.from([1]),signedTransaction:{transaction:unsigned}})}),
+  const account={createTransaction:async()=>stubUnsigned(),
+   getSigner:stubSigner,
    provider:{sendTransactionUntil:async()=>{sent++}}};
-  await assert.rejects(()=>signPersistSend({account,journal,approved:base,actions:[],baseEncode:x=>x[0]===1?HASH:BLOCK}),/pending|recover|blocked/i);
+  await assert.rejects(()=>signPersistSend({account,journal,approved:base,actions:[],baseEncode:stubEncode}),/pending|recover|blocked/i);
   assert.equal(sent,0);
  });
 });
