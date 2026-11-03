@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld('forge',Object.freeze({
  upgradeContext:data=>invoke('upgrade-context',data),
  upgradePrepare:data=>invoke('upgrade-prepare',data),
  deploy:data=>invoke('deploy',data),
+ recoveryList:()=>invoke('recovery-list'),
+ recoveryResolve:data=>invoke('recovery-resolve',data),
  list:()=>invoke('library-list'),
  save:data=>invoke('library-save',data),
  load:id=>invoke('library-load',id),
