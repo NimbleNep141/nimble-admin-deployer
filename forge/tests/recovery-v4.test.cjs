@@ -116,3 +116,25 @@ test('red: a success resolution must carry independent finalized proof',async()=
   await assert.rejects(()=>j.assertClear(a.network,a.target),/corrupt|incomplete|invalid|blocked/i);
  });
 });
+
+test('red: crash orphan .tmp files never masquerade as published signed attempts or resolutions',async()=>{
+ await temporary(async dir=>{
+  const j=new V4Journal(dir),a=await j.start(BASE);
+  const pending=path.dirname(j.attemptFile(a));
+  const tmp='.'+'11111111-1111-4111-8111-111111111111'+'.tmp';
+  await fs.writeFile(path.join(pending,tmp),'{incomplete-stage');
+  const p=path.dirname(j.resolutionFile(a));
+  await fs.mkdir(p,{recursive:true});
+  await fs.writeFile(path.join(p,tmp),'{incomplete-archive-stage');
+  await assert.rejects(()=>j.assertClear(a.network,a.target),/pending|recovery/i);
+  assert.equal((await j.listTarget(a.network,a.target)).length,1);
+ });
+});
+test('red: a canonical attempt file cannot be replaced by a second generation claimant',async()=>{
+ await temporary(async dir=>{
+  const j=new V4Journal(dir),a=await j.start(BASE);
+  const raw=await fs.readFile(j.attemptFile(a),'utf8');
+  await assert.rejects(()=>j.start(BASE),/pending|recovery|blocked/i);
+  assert.equal(await fs.readFile(j.attemptFile(a),'utf8'),raw);
+ });
+});
