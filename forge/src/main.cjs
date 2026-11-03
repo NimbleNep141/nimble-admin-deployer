@@ -4,6 +4,9 @@ const {readFile,stat,rm}=require('node:fs/promises');
 const path=require('node:path');
 const {randomUUID,createHash}=require('node:crypto');
 const {Library}=require('./library.cjs');
+const {V4Journal}=require('./recovery-v4-journal.cjs');
+const {signAndSubmitExact}=require('./recovery-v4-broadcast.cjs');
+const {exact,verifySuccessful,inspectFailure}=require('./recovery-v4-verifier.cjs');
 const sourceEditor=require('./source-editor.cjs');
 // Metadata parser only. Native Windows Node/npm compiler IPC remains disabled.
 const jsToolchain=require('./js-toolchain.cjs');
@@ -15,10 +18,14 @@ const {verifyDeployment}=require('./deployment-verification.cjs');
 const upgradeSafety=require('./upgrade-safety.cjs');
 
 let activeNetwork='testnet',switchingNetwork=false,networkOperations=0;
-const networkOperationNames=new Set(['network','inspect','import-key','key-file','preflight','deploy','upgrade-context','upgrade-prepare']);
+const networkOperationNames=new Set(['network','inspect','import-key','key-file','preflight','deploy','upgrade-context','upgrade-prepare','recovery-list','recovery-verify','recovery-review-failure','recovery-cancel-prepared']);
 const EMPTY_CODE='11111111111111111111111111111111';
 let current=null,signer=null,previewRecord=null,upgradeReview=null,working=false,library=null,compilerSetupBusy=false,compilerBuildBusy=false,jsSetupBusy=false,jsBuildBusy=false,isolateBusy=false,editorProject=null,editorLoaded=null;
-const attemptedTargets=new Set();
+let journal=null;
+// GUI single-instance protection is defense in depth; the immutable journal
+// also prevents the stale-cleanup race independently of this OS lock.
+const primaryInstance=app.requestSingleInstanceLock();
+if(!primaryInstance)app.quit();
 function invalidate(){previewRecord=null;upgradeReview=null;}
 const result=(code,data)=>({ok:true,data});
 function safeError(e){
@@ -302,6 +309,7 @@ async function preflight(data){
  const storageCost=await price();
  const p=plan(data,current.bytes,storageCost);
  if(signer.owner!==p.signer||p.network!==activeNetwork)throw Error('Signer or deployment network does not match.');
+  await journal.assertClear(activeNetwork,p.target);
  if(p.mode==='existing'&&p.keyMode==='keyless')throw Error('Keyless is supported only for new child accounts.');
  const [target,owner]=await Promise.all([queryAccount(p.target),queryAccount(p.signer)]);
  if(!owner)throw Error('Signer account is missing on NEAR '+activeNetwork+'.');
@@ -417,7 +425,7 @@ async function check(data){
 async function deploy(data,event){
  if(compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy||isolateBusy)throw Error('Compiler is active.');
  if(working)throw Error('Another deployment is running.');
- working=true;let attempted=false;
+ working=true;let pendingTarget=null;
  try{
   if(!data?.ack)throw Error('Review and acknowledge deployment risks first.');
   if(data?.config?.network!==activeNetwork)throw Error('Active network changed. Run preflight again.');
@@ -429,11 +437,11 @@ async function deploy(data,event){
   const prepared=await requireUpgradeReview(data.config,report);
   if(prepared&&data.upgradeToken!==prepared.token)throw Error('Mainnet upgrade compatibility approval token does not match. Run Preflight again.');
   const p=report.p;
+  pendingTarget=p.target;
   if(report.upgrade&&!data.ackMigration)throw Error('Explicitly acknowledge stored-state migration risks before upgrading an existing contract.');
   if(data.confirm!==p.target)throw Error('Type the exact contract address to approve.');
   if(p.target!==previewRecord.target||signer.owner!==previewRecord.owner||current.hash!==previewRecord.hash||previewRecord.network!==activeNetwork||signer.network!==activeNetwork)
     throw Error('Signer, contract or target changed. Re-run Preflight.');
-  if(attemptedTargets.has(activeNetwork+':'+p.target))throw Error('This target has a prior deployment attempt on this network this session. Inspect receipts before retrying.');
   const parent=BrowserWindow.fromWebContents(event.sender);
   if(!parent)throw Error('Cannot display native Windows confirmation.');
   const mainnet=activeNetwork==='mainnet';
@@ -458,13 +466,18 @@ async function deploy(data,event){
   const approvedPublicKey=signer.publicKey.toString();
   const list=actionsFor(actions,current.bytes,p,signer.publicKey);
   previewRecord=null;
-  attempted=true;
-  attemptedTargets.add(activeNetwork+':'+p.target);
-  // No automatic retries. Do not resubmit if a post-send read or receipt check fails.
-  const tx=await signer.account.signAndSendTransaction({
-    receiverId:p.target,actions:list,retries:0,waitUntil:'FINAL',throwOnFailure:false
-  });
-  const txHash=tx?.transaction?.hash||tx?.transaction_outcome?.id||null;
+  // Exact signed bytes are journaled before an exclusive broadcast-intent claim.
+  // No SDK re-signing, unknown-hash submissions, or automatic replacement.
+  const tx=await signAndSubmitExact({account:signer.account,journal,
+   approved:{network:activeNetwork,target:p.target,signer:p.signer,
+    publicKey:approvedPublicKey,mode:p.mode,keyMode:p.keyMode,
+    initMethod:p.init.method||'',wasmSha256:current.hash,expectedCodeHash:expected},
+   actions:list,baseEncode});
+  const saved=await journal.unresolved(activeNetwork,p.target);
+  if(!saved)throw Error('Signed transaction evidence missing after broadcast. Stop and inspect journal.');
+  const txHash=saved.txHash;
+  if(tx?.transaction?.hash&&tx.transaction.hash!==txHash)
+   throw Error('RPC result differs from the exact signed transaction. Guard retained.');
   // Independently re-query the canonical transaction including all executed receipts.
   let finalized=null,transactionLookupError=null;
   if(!txHash)transactionLookupError='Submission did not return a transaction hash.';
@@ -488,7 +501,13 @@ async function deploy(data,event){
   if(tx?.status?.Failure)review.reasons.push('The original signed transaction response reported an execution failure.');
   if(accountResult.status==='rejected')review.reasons.push('On-chain account lookup failed: '+safeError(accountResult.reason));
   if(keyResult.status==='rejected')review.reasons.push('On-chain access-key lookup failed: '+safeError(keyResult.reason));
+  const savedForReview=await journal.unresolved(activeNetwork,p.target);
+  if(!savedForReview||!exact(finalized,savedForReview))
+   review.reasons.push('Exact saved signed transaction hash/nonce not independently matched.');
   const verified=review.verified&&review.reasons.length===0;
+  if(verified)await journal.resolveVerified(savedForReview,'verified-success',{
+   id:savedForReview.id,txHash,kind:'verified-success',finalized:true,
+   receiptCount:review.receiptCount||0,verified:true,codeHash:expected});
   const warning=verified?
    (review.keyless?'Code and receipts verified. INTENTIONALLY KEYLESS: no owner has a normal access key.':
     'Code, finalized receipt outcomes and expected FullAccess owner key verified.'+
@@ -502,9 +521,95 @@ async function deploy(data,event){
    initializationVerified:review.initializationVerified,receiptCount:review.receiptCount,
    verified,failed:Boolean(finalized?.status?.Failure||tx?.status?.Failure),warning};
  }catch(e){
-  if(attempted)throw Error('Submission/verification is uncertain: '+safeError(e)+'. Check the selected network explorer BEFORE another attempt.');
+  if(pendingTarget){
+   let pending;
+   try{pending=await journal.unresolved(activeNetwork,pendingTarget);}
+   catch{throw Error('Recovery journal unreadable. Signing remains blocked; preserve evidence.');}
+   if(pending)throw Error('Unresolved signed transaction: '+safeError(e)+
+    '. Exact transaction '+pending.txHash+' remains protected in Recovery. Never resubmit blindly.');
+  }
   throw e;
  }finally{working=false;previewRecord=null}
+}
+// Recovery runs only read-only on-chain requests, never signs or resubmits.
+async function recoveryList(){
+ if(working)throw Error('Deployment active. Recovery temporarily unavailable.');
+ return journal.list(activeNetwork);
+}
+async function recoveryVerify(data){
+ if(working)throw Error('Finish the current operation.');
+ working=true;
+ try{
+  await network();
+  return await verifySuccessful({journal,network:activeNetwork,
+   target:accountId(data?.target,activeNetwork),rpc,queryAccount});
+ }finally{working=false;}
+}
+async function recoveryCancelPrepared(data,event){
+ if(working)throw Error('Finish the current operation.');
+ working=true;
+ try{
+  const target=accountId(data?.target,activeNetwork);
+  if(data?.typedTarget!==target)throw Error('Type the exact target to review cancellation.');
+  const a=await journal.unresolved(activeNetwork,target);
+  if(!a)throw Error('No unresolved transaction for this target.');
+  if(a.phase&&a.phase!=='cancelled-prebroadcast')
+   throw Error('Broadcast may have started. This transaction cannot be marked never sent.');
+  const parent=BrowserWindow.fromWebContents(event.sender);
+  if(!parent)throw Error('Native confirmation unavailable.');
+  const result=await dialog.showMessageBox(parent,{
+   title:'Review Never-Broadcast Signed Transaction',type:'warning',
+   buttons:['Cancel','Archive Prepared-Only Attempt'],defaultId:0,cancelId:0,noLink:true,
+   message:'Resolve this signed transaction as never broadcast?',
+   detail:'NETWORK '+activeNetwork.toUpperCase()+'\nTARGET '+target+
+    '\nEXACT HASH '+a.txHash+'\nNONCE '+a.nonce+
+    '\n\nForge has NO broadcast-intent marker for this attempt. An exclusive cancellation marker is written before archiving. If any broadcast intent exists, cancellation is rejected. No new transaction is sent.'
+  });
+  if(result.response!==1)return {cancelled:true};
+  if(!a.phase)await journal.cancelBeforeBroadcast(a);
+  const outcome=await journal.resolveBeforeBroadcast(a);
+  invalidate();
+  return {...outcome,network:activeNetwork,target};
+ }finally{working=false;}
+}
+async function recoveryReviewFailure(data,event){
+ if(working)throw Error('Finish the current operation.');
+ working=true;
+ try{
+  await network();
+  const target=accountId(data?.target,activeNetwork);
+  if(data?.typedTarget!==target)throw Error('Type the exact target to approve a FINAL failed transaction review.');
+  const before=await inspectFailure({journal,network:activeNetwork,target,rpc,queryAccount});
+  const parent=BrowserWindow.fromWebContents(event.sender);
+  if(!parent)throw Error('Native confirmation unavailable.');
+  const detail='NETWORK '+activeNetwork.toUpperCase()+'\nTARGET '+target+
+   '\nTX '+before.report.txHash+'\nNONCE '+before.report.nonce+
+   '\nFINAL FAILURE '+before.report.txFailure+
+   '\nACCOUNT '+(before.report.accountExists?'EXISTS':'NOT FOUND')+
+   '\nCODE '+(before.report.codeHash||'none')+
+   '\nLIQUID '+(before.report.amount||'unknown')+
+   '\nLOCKED '+(before.report.locked||'unknown')+
+   '\nSTORAGE '+(before.report.storageUsage??'unknown')+
+   '\nKEYS '+before.report.keyCount+
+   '\nRECEIPTS '+before.report.receipts.map(r=>r.executor+': '+r.result).join(' | ').slice(0,1300)+
+   '\n\nReview all receipts and account state separately before proceeding. This action NEVER retries or restores prior state.';
+  const result=await dialog.showMessageBox(parent,{
+   title:'Review Exact FINAL Failed Transaction',type:'warning',
+   buttons:['Cancel','I Reviewed the FINAL Failure'],defaultId:0,cancelId:0,noLink:true,
+   message:'Archive this independently confirmed FINAL failure?',detail
+  });
+  if(result.response!==1)return {cancelled:true};
+  const after=await inspectFailure({journal,network:activeNetwork,target,rpc,queryAccount});
+  if(after.fingerprint!==before.fingerprint||after.attempt.id!==before.attempt.id)
+   throw Error('Failure evidence changed during review; guard retained.');
+  const a=after.attempt;
+  const outcome=await journal.resolveVerified(a,'reviewed-final-failure',{
+   id:a.id,txHash:a.txHash,kind:'reviewed-final-failure',
+   finalized:true,receiptCount:after.report.receipts.length,
+   reviewed:true,fingerprint:after.fingerprint});
+  invalidate();
+  return {...outcome,network:activeNetwork,target,note:'Reviewed FINAL failure archived. A fresh preflight is mandatory.'};
+ }finally{working=false;}
 }
 async function inspectContract(value){
  await network();
@@ -557,13 +662,18 @@ function register(){
  bind('upgrade-context',upgradeContext);
  bind('upgrade-prepare',prepareUpgrade);
  bind('deploy',deploy);
+ bind('recovery-list',recoveryList);
+ bind('recovery-verify',recoveryVerify);
+ bind('recovery-review-failure',recoveryReviewFailure);
+ bind('recovery-cancel-prepared',recoveryCancelPrepared);
  bind('library-list',()=>library.list());
  bind('library-save',saveContract);
  bind('library-load',selectSaved);
  bind('library-delete',async id=>{if(working)throw Error('Deployment in progress.');return library.delete(id)});
 }
-app.whenReady().then(async()=>{
- library=new Library(app.getPath('userData'));await library.init();register();
+if(primaryInstance)app.whenReady().then(async()=>{
+ library=new Library(app.getPath('userData'));await library.init();
+ journal=new V4Journal(app.getPath('userData'));register();
  session.defaultSession.setPermissionRequestHandler((_web,permission,done)=>done(false));
  session.defaultSession.webRequest.onBeforeRequest({urls:['https://*/*','http://*/*']},(_request,done)=>done({cancel:true}));
  const win=new BrowserWindow({width:1190,height:880,minWidth:870,minHeight:680,backgroundColor:'#070e17',
