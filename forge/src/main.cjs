@@ -421,7 +421,7 @@ async function check(data){
 async function deploy(data,event){
  if(compilerSetupBusy||compilerBuildBusy||jsSetupBusy||jsBuildBusy||isolateBusy)throw Error('Compiler is active.');
  if(working)throw Error('Another deployment is running.');
- working=true;let attempted=false;
+ working=true;let pendingTarget=null;
  try{
   if(!data?.ack)throw Error('Review and acknowledge deployment risks first.');
   if(data?.config?.network!==activeNetwork)throw Error('Active network changed. Run preflight again.');
@@ -433,6 +433,7 @@ async function deploy(data,event){
   const prepared=await requireUpgradeReview(data.config,report);
   if(prepared&&data.upgradeToken!==prepared.token)throw Error('Mainnet upgrade compatibility approval token does not match. Run Preflight again.');
   const p=report.p;
+  pendingTarget=p.target;
   if(report.upgrade&&!data.ackMigration)throw Error('Explicitly acknowledge stored-state migration risks before upgrading an existing contract.');
   if(data.confirm!==p.target)throw Error('Type the exact contract address to approve.');
   if(p.target!==previewRecord.target||signer.owner!==previewRecord.owner||current.hash!==previewRecord.hash||previewRecord.network!==activeNetwork||signer.network!==activeNetwork)
@@ -468,7 +469,6 @@ async function deploy(data,event){
     publicKey:approvedPublicKey,mode:p.mode,keyMode:p.keyMode,
     initMethod:p.init.method||'',wasmSha256:current.hash,expectedCodeHash:expected},
    actions:list,baseEncode});
-  attempted=true;
   const saved=await journal.get(activeNetwork,p.target);
   if(!saved)throw Error('Signed transaction recovery evidence is unexpectedly missing.');
   const txHash=saved.txHash;
@@ -476,11 +476,8 @@ async function deploy(data,event){
    throw Error('RPC returned a different transaction hash. Recovery guard retained.');
   // Independently re-query the canonical transaction including all executed receipts.
   let finalized=null,transactionLookupError=null;
-  if(!txHash)transactionLookupError='Submission did not return a transaction hash.';
-  else{
-   try{finalized=await rpc('tx',{tx_hash:txHash,sender_account_id:p.signer,wait_until:'FINAL'});}
-   catch(e){transactionLookupError='Independent final transaction lookup failed: '+safeError(e);}
-  }
+  try{finalized=await rpc('tx',{tx_hash:txHash,sender_account_id:p.signer,wait_until:'FINAL'});}
+  catch(e){transactionLookupError='Independent final transaction lookup failed: '+safeError(e);}
   // Fail closed, but still attempt read-only state checks after an unsuccessful lookup.
   const [accountResult,keyResult]=await Promise.allSettled([
    queryAccount(p.target),
@@ -515,7 +512,13 @@ async function deploy(data,event){
    initializationVerified:review.initializationVerified,receiptCount:review.receiptCount,
    verified,failed:Boolean(finalized?.status?.Failure||tx?.status?.Failure),warning};
  }catch(e){
-  if(attempted)throw Error('Submission/verification is uncertain: '+safeError(e)+'. Check the selected network explorer BEFORE another attempt.');
+  if(pendingTarget){
+   let pending=null;
+   try{pending=await journal.get(activeNetwork,pendingTarget);}
+   catch{throw Error('Recovery evidence is unreadable. Deployment is blocked; preserve the journal.');}
+   if(pending)throw Error('Signed transaction outcome is uncertain: '+safeError(e)+
+    '. Exact hash '+pending.txHash+' is saved and remains protected. Open Transaction Recovery.');
+  }
   throw e;
  }finally{working=false;previewRecord=null}
 }
