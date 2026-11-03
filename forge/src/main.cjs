@@ -4,6 +4,9 @@ const {readFile,stat,rm}=require('node:fs/promises');
 const path=require('node:path');
 const {randomUUID,createHash}=require('node:crypto');
 const {Library}=require('./library.cjs');
+const {RecoveryJournalV3}=require('./recovery-v3-journal.cjs');
+const {signPersistSend}=require('./recovery-v3-broadcast.cjs');
+const {verifyRecovery,verifyFailure,exactTransaction}=require('./recovery-v3-verifier.cjs');
 const sourceEditor=require('./source-editor.cjs');
 // Metadata parser only. Native Windows Node/npm compiler IPC remains disabled.
 const jsToolchain=require('./js-toolchain.cjs');
@@ -15,10 +18,10 @@ const {verifyDeployment}=require('./deployment-verification.cjs');
 const upgradeSafety=require('./upgrade-safety.cjs');
 
 let activeNetwork='testnet',switchingNetwork=false,networkOperations=0;
-const networkOperationNames=new Set(['network','inspect','import-key','key-file','preflight','deploy','upgrade-context','upgrade-prepare']);
+const networkOperationNames=new Set(['network','inspect','import-key','key-file','preflight','deploy','upgrade-context','upgrade-prepare','recovery-list','recovery-verify','recovery-release-failure']);
 const EMPTY_CODE='11111111111111111111111111111111';
 let current=null,signer=null,previewRecord=null,upgradeReview=null,working=false,library=null,compilerSetupBusy=false,compilerBuildBusy=false,jsSetupBusy=false,jsBuildBusy=false,isolateBusy=false,editorProject=null,editorLoaded=null;
-const attemptedTargets=new Set();
+let journal=null;
 function invalidate(){previewRecord=null;upgradeReview=null;}
 const result=(code,data)=>({ok:true,data});
 function safeError(e){
@@ -302,6 +305,7 @@ async function preflight(data){
  const storageCost=await price();
  const p=plan(data,current.bytes,storageCost);
  if(signer.owner!==p.signer||p.network!==activeNetwork)throw Error('Signer or deployment network does not match.');
+ await journal.assertClear(activeNetwork,p.target);
  if(p.mode==='existing'&&p.keyMode==='keyless')throw Error('Keyless is supported only for new child accounts.');
  const [target,owner]=await Promise.all([queryAccount(p.target),queryAccount(p.signer)]);
  if(!owner)throw Error('Signer account is missing on NEAR '+activeNetwork+'.');
@@ -433,7 +437,6 @@ async function deploy(data,event){
   if(data.confirm!==p.target)throw Error('Type the exact contract address to approve.');
   if(p.target!==previewRecord.target||signer.owner!==previewRecord.owner||current.hash!==previewRecord.hash||previewRecord.network!==activeNetwork||signer.network!==activeNetwork)
     throw Error('Signer, contract or target changed. Re-run Preflight.');
-  if(attemptedTargets.has(activeNetwork+':'+p.target))throw Error('This target has a prior deployment attempt on this network this session. Inspect receipts before retrying.');
   const parent=BrowserWindow.fromWebContents(event.sender);
   if(!parent)throw Error('Cannot display native Windows confirmation.');
   const mainnet=activeNetwork==='mainnet';
@@ -458,13 +461,19 @@ async function deploy(data,event){
   const approvedPublicKey=signer.publicKey.toString();
   const list=actionsFor(actions,current.bytes,p,signer.publicKey);
   previewRecord=null;
+  // Sign -> exact signed hash -> fsync durable guard -> broadcast EXACT signed bytes.
+  // If any pre-broadcast step fails, provider never sees the transaction.
+  const tx=await signPersistSend({account:signer.account,journal,
+   approved:{network:activeNetwork,target:p.target,signer:p.signer,
+    publicKey:approvedPublicKey,mode:p.mode,keyMode:p.keyMode,
+    initMethod:p.init.method||'',wasmSha256:current.hash,expectedCodeHash:expected},
+   actions:list,baseEncode});
   attempted=true;
-  attemptedTargets.add(activeNetwork+':'+p.target);
-  // No automatic retries. Do not resubmit if a post-send read or receipt check fails.
-  const tx=await signer.account.signAndSendTransaction({
-    receiverId:p.target,actions:list,retries:0,waitUntil:'FINAL',throwOnFailure:false
-  });
-  const txHash=tx?.transaction?.hash||tx?.transaction_outcome?.id||null;
+  const saved=await journal.get(activeNetwork,p.target);
+  if(!saved)throw Error('Signed transaction recovery evidence is unexpectedly missing.');
+  const txHash=saved.txHash;
+  if(tx?.transaction?.hash&&tx.transaction.hash!==txHash)
+   throw Error('RPC returned a different transaction hash. Recovery guard retained.');
   // Independently re-query the canonical transaction including all executed receipts.
   let finalized=null,transactionLookupError=null;
   if(!txHash)transactionLookupError='Submission did not return a transaction hash.';
@@ -488,7 +497,11 @@ async function deploy(data,event){
   if(tx?.status?.Failure)review.reasons.push('The original signed transaction response reported an execution failure.');
   if(accountResult.status==='rejected')review.reasons.push('On-chain account lookup failed: '+safeError(accountResult.reason));
   if(keyResult.status==='rejected')review.reasons.push('On-chain access-key lookup failed: '+safeError(keyResult.reason));
+  const signedRecord=await journal.get(activeNetwork,p.target);
+  if(!signedRecord||!exactTransaction(finalized,signedRecord))
+   review.reasons.push('Exact pre-broadcast signed transaction identity or nonce mismatch.');
   const verified=review.verified&&review.reasons.length===0;
+  if(verified)await journal.completeSuccess(activeNetwork,p.target,txHash,{verified:true});
   const warning=verified?
    (review.keyless?'Code and receipts verified. INTENTIONALLY KEYLESS: no owner has a normal access key.':
     'Code, finalized receipt outcomes and expected FullAccess owner key verified.'+
@@ -505,6 +518,52 @@ async function deploy(data,event){
   if(attempted)throw Error('Submission/verification is uncertain: '+safeError(e)+'. Check the selected network explorer BEFORE another attempt.');
   throw e;
  }finally{working=false;previewRecord=null}
+}
+// Read-only recovery by exact pre-broadcast hash, never by supplied explorer hash.
+async function recoveryList(){
+ if(working)throw Error('Finish the current operation before opening recovery.');
+ return journal.list(activeNetwork);
+}
+async function recoveryVerify(data){
+ if(working)throw Error('A deployment is running.');
+ working=true;
+ try{
+  await network();
+  return await verifyRecovery({journal,network:activeNetwork,
+    target:accountId(data?.target,activeNetwork),rpc,queryAccount});
+ }finally{working=false;}
+}
+async function recoveryReleaseFailure(data,event){
+ if(working)throw Error('A deployment is running.');
+ working=true;
+ try{
+  await network();
+  const target=accountId(data?.target,activeNetwork);
+  if(data?.typedTarget!==target)throw Error('Type the exact target to review a confirmed failed transaction.');
+  const proof=await verifyFailure({journal,network:activeNetwork,target,rpc,queryAccount});
+  const parent=BrowserWindow.fromWebContents(event.sender);
+  if(!parent)throw Error('Native Windows confirmation is unavailable.');
+  const selection=await dialog.showMessageBox(parent,{
+   title:'Review Finalized Failed NEAR Transaction',type:'warning',
+   buttons:['Cancel','I Reviewed This Finalized Failure'],defaultId:0,cancelId:0,noLink:true,
+   message:'Archive the EXACT signed, independently finalized failed transaction?',
+   detail:'NETWORK '+proof.network.toUpperCase()+'\nTARGET '+target+
+    '\nSIGNED TX '+proof.txHash+'\nNONCE '+proof.nonce+
+    '\nRECEIPTS '+proof.receiptCount+'\nACCOUNT EXISTS '+(proof.accountExists?'YES':'NO')+
+    '\nCODE HASH '+(proof.codeHash||'NO ACCOUNT')+
+    '\nACCESS KEYS '+(proof.keyCount===null?'NO ACCOUNT':proof.keyCount)+
+    '\n\nA failed transaction may leave state changes. This clears only its local guard. It NEVER resends a transaction or approves a replacement. A fresh preflight and separate confirmation will be required.'
+  });
+  if(selection.response!==1)return {cancelled:true};
+  // Revalidate finality, nonce, receipts and current account state after user approval.
+  const again=await verifyFailure({journal,network:activeNetwork,target,rpc,queryAccount});
+  if(!again.finalFailure||again.txHash!==proof.txHash||
+     again.accountExists!==proof.accountExists||again.codeHash!==proof.codeHash||
+     again.keyCount!==proof.keyCount)throw Error('Failed transaction state changed during review. Guard retained.');
+  const archived=await journal.completeFailure(activeNetwork,target,proof.txHash,{reviewed:true,finalFailure:true});
+  invalidate();
+  return {...archived,network:activeNetwork,target,note:'Confirmed FINAL failure reviewed and archived. Run a fresh preflight to consider any further action.'};
+ }finally{working=false;}
 }
 async function inspectContract(value){
  await network();
@@ -557,13 +616,17 @@ function register(){
  bind('upgrade-context',upgradeContext);
  bind('upgrade-prepare',prepareUpgrade);
  bind('deploy',deploy);
+ bind('recovery-list',recoveryList);
+ bind('recovery-verify',recoveryVerify);
+ bind('recovery-release-failure',recoveryReleaseFailure);
  bind('library-list',()=>library.list());
  bind('library-save',saveContract);
  bind('library-load',selectSaved);
  bind('library-delete',async id=>{if(working)throw Error('Deployment in progress.');return library.delete(id)});
 }
 app.whenReady().then(async()=>{
- library=new Library(app.getPath('userData'));await library.init();register();
+ library=new Library(app.getPath('userData'));await library.init();
+ journal=new RecoveryJournalV3(app.getPath('userData'));await journal.init();register();
  session.defaultSession.setPermissionRequestHandler((_web,permission,done)=>done(false));
  session.defaultSession.webRequest.onBeforeRequest({urls:['https://*/*','http://*/*']},(_request,done)=>done({cancel:true}));
  const win=new BrowserWindow({width:1190,height:880,minWidth:870,minHeight:680,backgroundColor:'#070e17',
