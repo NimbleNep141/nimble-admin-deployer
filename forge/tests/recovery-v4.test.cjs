@@ -10,7 +10,7 @@ const BASE={network:'testnet',signer:'owner.testnet',target:'child.owner.testnet
  mode:'new',keyMode:'controlled',initMethod:'new',wasmSha256:'a'.repeat(64),
  expectedCodeHash:'4'.repeat(44),txHash:'2'.repeat(44),nonce:'15',blockHash:'5'.repeat(44)};
 async function temporary(fn){const p=await fs.mkdtemp(path.join(os.tmpdir(),'forge-v4-'));try{return await fn(p)}finally{await fs.rm(p,{recursive:true,force:true})}}
-const proof=(id,hash,kind)=>({id,txHash:hash,kind,finalized:true,receiptCount:1,reviewed:true});
+const proof=(id,hash,kind)=>({id,txHash:hash,kind,finalized:true,receiptCount:1,reviewed:true,verified:true,fingerprint:'a'.repeat(64)});
 test('red: exact transaction ID remains durable after restart and blocks a duplicate',async()=>{
  await temporary(async dir=>{
   const a=new V4Journal(dir),first=await a.start(BASE);
@@ -98,4 +98,21 @@ test('red: no session guard, no original sign-and-send retry path',async()=>{
  assert.doesNotMatch(m,/attemptedTargets/);assert.doesNotMatch(r,/submittedTarget/);
  assert.match(m,/signAndSubmitExact/);assert.doesNotMatch(m,/signer\.account\.signAndSendTransaction/);
  assert.match(m,/requestSingleInstanceLock/);
+});
+
+test('red: forged or incomplete JSON resolution can never clear an attempt',async()=>{
+ await temporary(async dir=>{
+  const j=new V4Journal(dir),a=await j.start(BASE);await j.claimBroadcast(a);
+  await fs.writeFile(j.resolutionFile(a),JSON.stringify({id:a.id,txHash:a.txHash,kind:'verified-success'}));
+  await assert.rejects(()=>j.assertClear(a.network,a.target),/corrupt|incomplete|invalid|blocked/i);
+ });
+});
+test('red: a success resolution must carry independent finalized proof',async()=>{
+ await temporary(async dir=>{
+  const j=new V4Journal(dir),a=await j.start(BASE);await j.claimBroadcast(a);
+  await fs.writeFile(j.resolutionFile(a),JSON.stringify({id:a.id,txHash:a.txHash,
+   generation:a.generation,at:new Date().toISOString(),kind:'verified-success',
+   proof:{id:a.id,txHash:a.txHash,kind:'verified-success',finalized:false,verified:false,receiptCount:1}}));
+  await assert.rejects(()=>j.assertClear(a.network,a.target),/corrupt|incomplete|invalid|blocked/i);
+ });
 });
