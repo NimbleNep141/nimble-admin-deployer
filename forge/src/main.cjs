@@ -5,6 +5,7 @@ const path=require('node:path');
 const {randomUUID,createHash}=require('node:crypto');
 const {Library}=require('./library.cjs');
 const {RecoveryJournal}=require('./recovery-journal.cjs');
+const {reconcile}=require('./recovery-verification.cjs');
 const sourceEditor=require('./source-editor.cjs');
 // Metadata parser only. Native Windows Node/npm compiler IPC remains disabled.
 const jsToolchain=require('./js-toolchain.cjs');
@@ -514,6 +515,22 @@ async function deploy(data,event){
   if(attempted)throw Error('Submission/verification is uncertain: '+safeError(e)+'. Check the selected network explorer BEFORE another attempt.');
   throw e;
  }finally{working=false;previewRecord=null}
+}
+// Only public metadata is exposed. Recovery is entirely read-only on-chain.
+async function recoveryList(){
+ if(working)throw Error('A deployment is running. Recovery viewing is temporarily unavailable.');
+ return journal.list(activeNetwork);
+}
+async function recoveryResolve(data){
+ if(working)throw Error('A deployment or upgrade is in progress.');
+ working=true;
+ try{
+  await network();
+  return await reconcile({
+   journal,network:activeNetwork,target:data?.target,providedHash:data?.txHash,
+   rpc,queryAccount
+  });
+ }finally{working=false;}
 }
 async function inspectContract(value){
  await network();
