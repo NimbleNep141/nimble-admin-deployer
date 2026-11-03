@@ -33,12 +33,20 @@ class RecoveryJournal{
   this.root=path.join(userData,'recovery-journal-v2');
   this.active=path.join(this.root,'active');
   this.history=path.join(this.root,'history');
+  // v0.8.2 used a different directory. Never silently ignore its unresolved records.
+  this.legacyActive=path.join(userData,'deployment-journal','active');
  }
  key(network,target){
   networkConfig(network);accountId(target,network);
   return path.join(this.active,digest(network+'\0'+target)+'.json');
  }
  async init(){await fs.mkdir(this.active,{recursive:true,mode:0o700});await fs.mkdir(this.history,{recursive:true,mode:0o700});}
+ async assertLegacyClear(){
+  let files;
+  try{files=await fs.readdir(this.legacyActive);}catch(e){if(e.code==='ENOENT')return;throw Error('Legacy v0.8.2 recovery records unreadable: deployment blocked.');}
+  if(files.some(name=>name.endsWith('.json')))
+   throw Error('Legacy v0.8.2 unresolved recovery records found. Preserve and investigate before deploying; they cannot be silently discarded.');
+ }
  async get(network,target){
   const file=this.key(network,target);
   let data;
@@ -52,6 +60,7 @@ class RecoveryJournal{
  }
  async assertClear(network,target){
   // Any file, even a damaged or unreadable one, is an active blocking marker.
+  await this.list(network); // Check legacy and damaged records across both networks first.
   const file=this.key(network,target);
   try{await fs.lstat(file);}catch(e){if(e.code==='ENOENT')return;throw safeError();}
   await this.get(network,target); // distinguish normal guard from a corrupt one
@@ -65,7 +74,7 @@ class RecoveryJournal{
    expectedCodeHash:input.expectedCodeHash,createdAt:new Date().toISOString(),
    state:'uncertain',txHash:null
   });
-  await this.init();
+  await this.list(record.network); // Fail closed on legacy, corrupt or contradictory records.
   const file=this.key(record.network,record.target);
   try{await writeSynced(file,JSON.stringify(record)+'\n','wx');}
   catch(e){
@@ -113,6 +122,7 @@ class RecoveryJournal{
  }
  async list(network){
   networkConfig(network);
+  await this.assertLegacyClear();
   await this.init();
   const names=(await fs.readdir(this.active)).filter(x=>x.endsWith('.json'));
   if(names.length>1000)throw Error('Recovery directory exceeds 1000 records; deploys blocked.');

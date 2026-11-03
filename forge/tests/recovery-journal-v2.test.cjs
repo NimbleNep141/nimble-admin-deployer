@@ -119,3 +119,29 @@ test('TDD: concurrent begin calls allow only one owner for a target',async()=>{
   assert.equal(result.filter(x=>x.status==='rejected').length,1);
  });
 });
+
+test('TDD: unresolved v0.8.2 journal records cannot be bypassed by v2',async()=>{
+ await withTemp(async dir=>{
+  const old=path.join(dir,'deployment-journal','active');await fs.mkdir(old,{recursive:true});
+  await fs.writeFile(path.join(old,'prior-transaction.json'),'{}');
+  const j=new RecoveryJournal(dir);
+  await assert.rejects(()=>j.assertClear('testnet','child.owner.testnet'),/legacy|v0\.8\.2/i);
+  await assert.rejects(()=>j.start(plan()),/legacy|v0\.8\.2/i);
+  await assert.rejects(()=>j.list('testnet'),/legacy|v0\.8\.2/i);
+ });
+});
+test('TDD: corrupted record on a different target blocks all new deployments',async()=>{
+ await withTemp(async dir=>{
+  const j=new RecoveryJournal(dir);await j.start(plan());
+  const folder=path.join(dir,'recovery-journal-v2','active');
+  const file=(await fs.readdir(folder))[0];await fs.writeFile(path.join(folder,file),'damaged');
+  await assert.rejects(()=>j.assertClear('mainnet','child.owner.near'),/corrupt|blocked|invalid/i);
+ });
+});
+test('TDD: storage-path failure refuses to begin an attempt rather than bypassing the guard',async()=>{
+ await withTemp(async dir=>{
+  const bad=path.join(dir,'not-a-directory');await fs.writeFile(bad,'x');
+  const j=new RecoveryJournal(bad);
+  await assert.rejects(()=>j.start(plan()));
+ });
+});
