@@ -87,10 +87,28 @@ class V4Journal{
    const a=validate(await read(path.join(this.attempts,k,file)));
    if(a.network!==network||a.target!==target||file!==this.name(a.generation))throw corrupt('Attempt identity changed');
    const phase=await read(this.phaseFile(a));
-   if(phase&&(phase.id!==a.id||!['broadcast-intent','cancelled-prebroadcast'].includes(phase.kind)))throw corrupt('Attempt phase mismatch');
+   if(phase&&(phase.id!==a.id||!['broadcast-intent','cancelled-prebroadcast'].includes(phase.kind)||
+      !Number.isFinite(Date.parse(phase.at))))throw corrupt('Attempt phase mismatch');
    const resolved=await read(this.resolutionFile(a));
-   if(resolved&&(resolved.id!==a.id||resolved.txHash!==a.txHash||
-      !['verified-success','reviewed-final-failure','cancelled-prebroadcast'].includes(resolved.kind)))throw corrupt('Resolution mismatch');
+   if(resolved){
+    const proof=resolved.proof;
+    if(resolved.id!==a.id||resolved.txHash!==a.txHash||resolved.generation!==a.generation||
+       !Number.isFinite(Date.parse(resolved.at))||
+       !['verified-success','reviewed-final-failure','cancelled-prebroadcast'].includes(resolved.kind)||
+       !proof||proof.id!==a.id||proof.txHash!==a.txHash||proof.kind!==resolved.kind)
+     throw corrupt('Resolution identity or evidence mismatch');
+    if(resolved.kind==='cancelled-prebroadcast'){
+     if(phase?.kind!=='cancelled-prebroadcast'||proof.reason!=='exclusive-cancel-won-before-broadcast')
+      throw corrupt('Cancellation evidence incomplete');
+    }else{
+     if(phase?.kind!=='broadcast-intent'||proof.finalized!==true||
+        !Number.isSafeInteger(proof.receiptCount)||proof.receiptCount<0||
+        (resolved.kind==='verified-success'&&proof.verified!==true)||
+        (resolved.kind==='reviewed-final-failure'&&
+         (proof.reviewed!==true||!SHA.test(proof.fingerprint||''))))
+      throw corrupt('On-chain resolution proof incomplete');
+    }
+   }
    result.push({...a,phase:phase?.kind||null,resolution:resolved?.kind||null});
   }
   result.sort((a,b)=>a.generation-b.generation);
