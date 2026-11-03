@@ -4,6 +4,20 @@
 
 Nearium Forge is a SEPARATE Windows 10/11 desktop application alongside the existing Nearium Factory Deployer. The original factory deployer remains unchanged. Forge uses its own source folder, workflow, and portable executable.
 
+## Recovery v4: Immutable journal experiment (NOT APPROVED FOR MAINNET)
+
+New experimental branch based directly on stable v0.8.1. Earlier attempted v0.8.2, Recovery v2 and Recovery v3 are **not** the source base. Do not auto-merge without audit and real disposable Testnet validation.
+
+- Signed transaction bytes are checked, exact transaction hash/nonce committed to a unique immutable numbered attempt file before provider submission.
+- An exclusive broadcast-intent marker is committed and synced before actual broadcast. A competing never-broadcast cancellation writes the **same** phase filename with `wx`, so the two operations cannot both win.
+- Resolution is append-only. Previous attempt files and phase markers are never deleted or renamed. A delayed verification cannot accidentally remove the guard for a newer attempt.
+- Success requires independently verified final receipts, WASM hash and access-key policy. Confirmed FINAL failures require signed transaction matching, complete receipt graph, account snapshot, typed target and a native Cancel-default confirmation followed by fresh verification.
+- A crash after signing but before broadcast intent is recoverable through an exclusive cancellation marker. A crash after broadcast intent remains uncertain until independently verified; the system must never fabricate certainty or retry automatically.
+- Valid legacy v0.8.2 files are isolated by identified network+target. Corrupted, unidentifiable legacy files still block signing. No legacy file is silently deleted or converted into an exact signed-hash v4 record.
+- The GUI enforces one running Electron app instance; deterministic generation numbers plus exclusive creation provide cross-process claim safety without permanent runtime lockfiles.
+- Recovery files contain only public identity metadata, never secrets or initializer arguments. No version of this prototype is approved for valuable Mainnet keys.
+- Test suite and Windows packaging green status are not sufficient for release. An independent review plus live disposable NEAR Testnet submission and crash/restart scenarios are required.
+
 ## v0.8.1: Host environment secret isolation for production builds
 
 Forge's official Rust production-build path now launches **both Git preflight and cargo-near** with a minimal allowlist of essential Windows system/toolchain environment variables. Arbitrary variables such as API tokens, cloud credentials, NEAR secret keys, credential-bearing proxy URLs, custom Git configuration overrides, and Docker host/context overrides are not inherited. This is enforced server-side in Forge's Electron main process, not merely through the user interface.
