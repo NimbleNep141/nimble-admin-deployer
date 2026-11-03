@@ -20,10 +20,10 @@ test('native Cancel-default dialog and no transaction auto retries',()=>{
  assert.match(source,/buttons:\['Cancel',mainnet\?'DEPLOY ON MAINNET':'Deploy Contract'\]/);
  assert.match(source,/defaultId:0,cancelId:0/);
  assert.match(source,/if\(selection\.response!==1\)return \{cancelled:true\}/);
- assert.match(source,/signPersistSend\\(/);
+ assert.match(source,/signPersistSend\(/);
  const broadcast=fs.readFileSync(path.join(__dirname,'../src/recovery-v3-broadcast.cjs'),'utf8');
- assert.match(broadcast,/sendTransactionUntil\\(signedTransaction,'FINAL'\\)/);
- assert.doesNotMatch(source,/signer\\.account\\.signAndSendTransaction/);
+ assert.match(broadcast,/sendTransactionUntil\(signedTransaction,'FINAL'\)/);
+ assert.doesNotMatch(source,/signer\.account\.signAndSendTransaction/);
 });
 test('existing account mode cannot deploy to a different owner',()=>{
  const c=require('../src/core.cjs');
@@ -35,7 +35,7 @@ test('existing account mode cannot deploy to a different owner',()=>{
 test('real funds have independent mainnet approval and network-specific attempt guard',()=>{
  assert.match(source,/data\.ackMainnet/);
  assert.match(source,/data\.confirmNetwork!=='MAINNET'/);
- assert.match(source,/await journal\\.assertClear\\(activeNetwork,p\\.target\\)/);
+ assert.match(source,/await journal\.assertClear\(activeNetwork,p\.target\)/);
  assert.doesNotMatch(source,/attemptedTargets/);
  const html=require('node:fs').readFileSync(require('node:path').join(__dirname,'../src/index.html'),'utf8');
  for(const id of ['network-select','mainnet-gate','mainnet-ack','mainnet-word','mainnet-warning'])assert.ok(html.includes('id="'+id+'"'));
