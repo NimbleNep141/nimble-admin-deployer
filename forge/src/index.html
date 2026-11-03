@@ -6,7 +6,7 @@
 <div class="app-shell">
 <header class="topbar">
   <div class="brand"><div class="brand-mark"><img class="brand-logo" src="./assets/nearium-forge-logo.png" alt="Nearium Forge logo"/></div><div class="brand-type"><b>NEARIUM <em>FORGE</em></b><small>SMART CONTRACT DEPLOYMENT STUDIO</small></div></div>
-  <div class="top-right"><span class="env-pill" id="env-label"><span class="live-dot"></span> NEAR TESTNET</span><span class="top-divider"></span><span class="version">DESKTOP BETA v0.8.1</span></div>
+  <div class="top-right"><span class="env-pill" id="env-label"><span class="live-dot"></span> NEAR TESTNET</span><span class="top-divider"></span><span class="version">RECOVERY V3 TEST BUILD · 0.8.3-RC.1</span></div>
 </header>
 <div id="home" class="page">
   <div class="home-hero">
@@ -139,6 +139,15 @@
           <div id="mainnet-gate" class="mainnet-gate" hidden><label class="checkbox-row"><input type="checkbox" id="mainnet-ack"/> I understand this deploys to NEAR Mainnet, spends REAL NEAR and cannot be reversed.</label><label for="mainnet-word">Type MAINNET to authorize real-funds deployment</label><input id="mainnet-word" autocomplete="off" spellcheck="false" placeholder="MAINNET"/></div>
            <div class="deploy-hint" id="deploy-hint">Run preflight before deploying.</div>
           <div class="result-box" id="deployment-result" role="status" aria-live="polite">No deployment transaction submitted in this session.</div>
+          <div class="panel-divider"></div>
+          <div class="subsection-title">TRANSACTION RECOVERY <span>EXACT SIGNED HASH · READ ONLY</span></div>
+          <p class="field-info">New deployments save the exact signed transaction hash and nonce before broadcast. Unresolved attempts survive restarts. Recovery never signs or retries. Legacy v0.8.2 records require separate review.</p>
+          <div class="form-grid">
+           <div><label for="recovery-target">Target account on selected network</label><input id="recovery-target" spellcheck="false" autocomplete="off" placeholder="contract.owner.testnet"/></div>
+           <div><label for="recovery-confirm-target">Type exact target to review a FINAL failure</label><input id="recovery-confirm-target" spellcheck="false" autocomplete="off" placeholder="Required only for failed transactions"/></div>
+          </div>
+          <div class="buttons"><button type="button" id="recovery-refresh" class="button button-outline">List Pending</button><button type="button" id="recovery-verify" class="button button-mint">Verify Signed Transaction</button><button type="button" id="recovery-release-failure" class="button button-outline">Review Confirmed FINAL Failure</button></div>
+          <div id="recovery-output" class="review-box" role="status" aria-live="polite">Only the pre-broadcast signed hash can resolve a v3 transaction. Final failures require native Windows confirmation.</div>
         </div>
       </section>
 
