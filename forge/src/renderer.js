@@ -32,6 +32,7 @@ function showView(next){
  document.querySelectorAll('.nav-link').forEach(n=>n.classList.toggle('selected',n.dataset.view===next));
  setText('workspace-title',names[next]);setText('workspace-desc',descriptions[next]);setText('crumb-page',next.toUpperCase());
  if(next==='library')refreshLibrary();
+ if(next==='deploy')refreshRecovery();
  if(next==='build'){refreshCompiler();refreshNodeStatus();refreshIsolationStatus();refreshReproducibleStatus();}
  if(next==='verify'&&!el('verify-address').value.trim())el('verify-address').value=targetId();
 }
@@ -93,7 +94,7 @@ function updateDeploy(){
 }
 function busy(value){
  working=value;
- for(const id of ['wasm-import','rust-compile','wasm-import-build','rust-compile-build','key-connect','key-file','key-disconnect','preflight','save-current','saved-load','saved-delete','saved-refresh','saved-verify','verify-button','deploy','isolated-build','isolated-check','reproducible-check','reproducible-install','upgrade-start','network-select','upgrade-inspect','upgrade-prepare'])el(id).disabled=value;
+ for(const id of ['wasm-import','rust-compile','wasm-import-build','rust-compile-build','key-connect','key-file','key-disconnect','preflight','save-current','saved-load','saved-delete','saved-refresh','saved-verify','verify-button','deploy','isolated-build','isolated-check','reproducible-check','reproducible-install','upgrade-start','network-select','upgrade-inspect','upgrade-prepare','recovery-refresh','recovery-resolve'])el(id).disabled=value;
  if(!value){el('upgrade-start').disabled=!artifact||sourceDirty;updateDeploy();}
 }
 function artifactUpdate(meta){
@@ -409,6 +410,36 @@ async function doDeploy(){
  }catch(e){setResult('DEPLOYMENT DID NOT CONFIRM\n'+e.message+'\nNever retry without verifying account and receipts on NEAR '+selectedNetwork+'.','error');notify(e.message,true)}
  finally{review=null;el('ack').checked=false;el('upgrade-ack').checked=false;display('upgrade-ack-row',false);el('confirmation').value='';el('mainnet-ack').checked=false;el('mainnet-word').value='';busy(false);updateDeploy()}
 }
+async function refreshRecovery(){
+ try{
+  const records=await call('recoveryList');
+  const lines=records.length?records.map(r=>
+    'NETWORK '+r.network.toUpperCase()+' · TARGET '+r.target+'\nSTATUS '+r.state.toUpperCase()+
+    '\nTX '+(r.txHash||'UNKNOWN · find transaction hash independently')+
+    '\nCREATED '+r.createdAt).join('\n\n'):
+    'No unresolved attempt is recorded for '+selectedNetwork.toUpperCase()+'.';
+  setText('recovery-output',lines);
+  if(records.length===1)el('recovery-target').value=records[0].target;
+ }catch(e){setText('recovery-output','Recovery list unavailable: '+e.message+'\nDo not send a new transaction until you can inspect the recovery records.');}
+}
+async function doRecovery(){
+ const target=el('recovery-target').value.trim()||targetId();
+ const txHash=el('recovery-hash').value.trim();
+ busy(true);
+ setText('recovery-output','Checking independently finalized transaction and receipts on NEAR '+selectedNetwork.toUpperCase()+'...');
+ try{
+  const status=await call('recoveryResolve',{target,txHash});
+  setText('recovery-output',
+   (status.resolved?'VERIFIED / ARCHIVED':'UNRESOLVED / BLOCKED')+
+   '\nNETWORK '+status.network.toUpperCase()+'\nTARGET '+status.target+
+   '\nTX '+status.txHash+'\n\n'+status.note);
+  if(status.resolved)notify('On-chain deployment independently verified; recovery evidence archived.');
+  else notify('Recovery remains blocked. No transaction was signed or retried.',true);
+ }catch(e){
+  setText('recovery-output','Recovery verification did not complete: '+e.message+'\nOriginal recovery guard was not cleared. Do not retry automatically.');
+  notify('Recovery remains protected: '+e.message,true);
+ }finally{busy(false);}
+}
 async function refreshLibrary(){
  try{
   saved=await call('list');
@@ -432,7 +463,8 @@ async function saveCurrent(){
  try{
   const item=await call('save',{name:el('save-name').value.trim(),preset:config(),deployment:lastDeployment});
   notify('Saved '+item.name+' to your local contract library. No signing keys were saved.');
-  await refreshLibrary();el('saved-select').value=item.id;savedUpdate();showView('library');
+  await refreshLibrary();
+  await refreshRecovery();el('saved-select').value=item.id;savedUpdate();showView('library');
  }catch(e){notify('Save failed: '+e.message,true)}finally{busy(false)}
 }
 function usePreset(p){
@@ -515,6 +547,7 @@ async function changeNetwork(){
   setText('upgrade-context-output','Select an existing Mainnet account and inspect old/new code hashes again.');
   setText('verify-output','Select an account on the active network to inspect.');
   invalidate();paintNetwork(state);
+  await refreshRecovery();
   notify('Network selected: '+selectedNetwork.toUpperCase()+'. Signing key disconnected. '+(selectedNetwork==='mainnet'?'CAUTION: real funds are at risk.':'Test NEAR only.'));
  }catch(e){paintNetwork();notify('Cannot switch network: '+e.message,true)}
  finally{busy(false)}
@@ -536,6 +569,7 @@ wire('source-project',openProjectUI);wire('source-save',saveSourceUI);wire('sour
 el('source-file').addEventListener('change',()=>openSourceFile(el('source-file').value));
 el('source-code').addEventListener('input',()=>setSourceDirty(Boolean(sourceFile&&el('source-code').value!==sourceFile.text)));
 wire('preflight',doPreflight);wire('deploy',doDeploy);wire('save-current',saveCurrent);
+ wire('recovery-refresh',refreshRecovery);wire('recovery-resolve',doRecovery);
 wire('saved-load',loadSaved);wire('saved-delete',deleteSaved);wire('saved-refresh',refreshLibrary);wire('verify-button',verify);
  el('network-select').addEventListener('change',changeNetwork);
 wire('saved-verify',()=>{const entry=saved.find(x=>x.id===el('saved-select').value);if(!entry?.deployment?.address)return;
@@ -563,5 +597,6 @@ async function initialize(){
   const n=await call('network');selectedNetwork=n.network;paintNetwork(n);
  }catch(e){setText('network-status',selectedNetwork+' unavailable');notify('Network check failed: '+e.message,true)}
  await refreshLibrary();
+ await refreshRecovery();
 }
 initialize();

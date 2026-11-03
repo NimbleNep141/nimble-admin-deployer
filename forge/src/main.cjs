@@ -4,6 +4,8 @@ const {readFile,stat,rm}=require('node:fs/promises');
 const path=require('node:path');
 const {randomUUID,createHash}=require('node:crypto');
 const {Library}=require('./library.cjs');
+const {RecoveryJournal}=require('./recovery-journal.cjs');
+const {reconcile}=require('./recovery-verification.cjs');
 const sourceEditor=require('./source-editor.cjs');
 // Metadata parser only. Native Windows Node/npm compiler IPC remains disabled.
 const jsToolchain=require('./js-toolchain.cjs');
@@ -15,10 +17,11 @@ const {verifyDeployment}=require('./deployment-verification.cjs');
 const upgradeSafety=require('./upgrade-safety.cjs');
 
 let activeNetwork='testnet',switchingNetwork=false,networkOperations=0;
-const networkOperationNames=new Set(['network','inspect','import-key','key-file','preflight','deploy','upgrade-context','upgrade-prepare']);
+const networkOperationNames=new Set(['network','inspect','import-key','key-file','preflight','deploy','upgrade-context','upgrade-prepare','recovery-list','recovery-resolve']);
 const EMPTY_CODE='11111111111111111111111111111111';
 let current=null,signer=null,previewRecord=null,upgradeReview=null,working=false,library=null,compilerSetupBusy=false,compilerBuildBusy=false,jsSetupBusy=false,jsBuildBusy=false,isolateBusy=false,editorProject=null,editorLoaded=null;
 const attemptedTargets=new Set();
+let journal=null;
 function invalidate(){previewRecord=null;upgradeReview=null;}
 const result=(code,data)=>({ok:true,data});
 function safeError(e){
@@ -302,6 +305,7 @@ async function preflight(data){
  const storageCost=await price();
  const p=plan(data,current.bytes,storageCost);
  if(signer.owner!==p.signer||p.network!==activeNetwork)throw Error('Signer or deployment network does not match.');
+ await journal.assertClear(activeNetwork,p.target); // Every restart must honor unresolved attempts.
  if(p.mode==='existing'&&p.keyMode==='keyless')throw Error('Keyless is supported only for new child accounts.');
  const [target,owner]=await Promise.all([queryAccount(p.target),queryAccount(p.signer)]);
  if(!owner)throw Error('Signer account is missing on NEAR '+activeNetwork+'.');
@@ -458,6 +462,10 @@ async function deploy(data,event){
   const approvedPublicKey=signer.publicKey.toString();
   const list=actionsFor(actions,current.bytes,p,signer.publicKey);
   previewRecord=null;
+  // Persist an exclusive, fsynced guard BEFORE calling the signer or broadcasting.
+  await journal.start({network:activeNetwork,target:p.target,signer:p.signer,
+   publicKey:approvedPublicKey,mode:p.mode,keyMode:p.keyMode,
+   initMethod:p.init.method||'',wasmSha256:current.hash,expectedCodeHash:expected});
   attempted=true;
   attemptedTargets.add(activeNetwork+':'+p.target);
   // No automatic retries. Do not resubmit if a post-send read or receipt check fails.
@@ -465,6 +473,7 @@ async function deploy(data,event){
     receiverId:p.target,actions:list,retries:0,waitUntil:'FINAL',throwOnFailure:false
   });
   const txHash=tx?.transaction?.hash||tx?.transaction_outcome?.id||null;
+  if(txHash)await journal.rememberHash(activeNetwork,p.target,txHash);
   // Independently re-query the canonical transaction including all executed receipts.
   let finalized=null,transactionLookupError=null;
   if(!txHash)transactionLookupError='Submission did not return a transaction hash.';
@@ -489,6 +498,7 @@ async function deploy(data,event){
   if(accountResult.status==='rejected')review.reasons.push('On-chain account lookup failed: '+safeError(accountResult.reason));
   if(keyResult.status==='rejected')review.reasons.push('On-chain access-key lookup failed: '+safeError(keyResult.reason));
   const verified=review.verified&&review.reasons.length===0;
+  if(verified)await journal.complete(activeNetwork,p.target,{verified:true,txHash});
   const warning=verified?
    (review.keyless?'Code and receipts verified. INTENTIONALLY KEYLESS: no owner has a normal access key.':
     'Code, finalized receipt outcomes and expected FullAccess owner key verified.'+
@@ -505,6 +515,22 @@ async function deploy(data,event){
   if(attempted)throw Error('Submission/verification is uncertain: '+safeError(e)+'. Check the selected network explorer BEFORE another attempt.');
   throw e;
  }finally{working=false;previewRecord=null}
+}
+// Only public metadata is exposed. Recovery is entirely read-only on-chain.
+async function recoveryList(){
+ if(working)throw Error('A deployment is running. Recovery viewing is temporarily unavailable.');
+ return journal.list(activeNetwork);
+}
+async function recoveryResolve(data){
+ if(working)throw Error('A deployment or upgrade is in progress.');
+ working=true;
+ try{
+  await network();
+  return await reconcile({
+   journal,network:activeNetwork,target:data?.target,providedHash:data?.txHash,
+   rpc,queryAccount
+  });
+ }finally{working=false;}
 }
 async function inspectContract(value){
  await network();
@@ -557,13 +583,16 @@ function register(){
  bind('upgrade-context',upgradeContext);
  bind('upgrade-prepare',prepareUpgrade);
  bind('deploy',deploy);
+ bind('recovery-list',recoveryList);
+ bind('recovery-resolve',recoveryResolve);
  bind('library-list',()=>library.list());
  bind('library-save',saveContract);
  bind('library-load',selectSaved);
  bind('library-delete',async id=>{if(working)throw Error('Deployment in progress.');return library.delete(id)});
 }
 app.whenReady().then(async()=>{
- library=new Library(app.getPath('userData'));await library.init();register();
+ library=new Library(app.getPath('userData'));await library.init();
+ journal=new RecoveryJournal(app.getPath('userData'));await journal.init();register();
  session.defaultSession.setPermissionRequestHandler((_web,permission,done)=>done(false));
  session.defaultSession.webRequest.onBeforeRequest({urls:['https://*/*','http://*/*']},(_request,done)=>done({cancel:true}));
  const win=new BrowserWindow({width:1190,height:880,minWidth:870,minHeight:680,backgroundColor:'#070e17',
